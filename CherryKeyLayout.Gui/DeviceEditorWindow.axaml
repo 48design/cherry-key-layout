@@ -1,0 +1,133 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CherryKeyLayout.Gui.DeviceEditorWindow"
+        Title="Device Editor"
+        Width="1200"
+        Height="780"
+        MinWidth="900"
+        MinHeight="640">
+  <Grid RowDefinitions="Auto,*" Margin="18">
+    <Border Classes="card">
+      <StackPanel Spacing="10">
+        <TextBlock Text="Device" Classes="section" />
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <TextBox Width="260" Text="{Binding DeviceName}" Watermark="Device name" />
+          <Button Classes="ghost" Content="Load Keyboard Image" Click="OnLoadKeyboardImageClicked" />
+          <Button Classes="ghost" Content="Load Key Layout" Click="OnLoadKeyboardLayoutClicked" />
+          <Button Classes="ghost" Content="Save Layout" Click="OnSaveKeyboardLayoutClicked" IsEnabled="{Binding IsLayoutReady}" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <TextBlock Text="Grid" VerticalAlignment="Center" />
+          <TextBox Width="60" Text="{Binding LayoutColumnsText}" Watermark="Cols" />
+          <TextBox Width="60" Text="{Binding LayoutRowsText}" Watermark="Rows" />
+          <Button Classes="ghost" Content="Generate Grid" Command="{Binding GenerateLayoutCommand}" />
+          <ToggleSwitch IsChecked="{Binding AutoApplyKeyColors}" />
+          <TextBlock Text="Apply on click" VerticalAlignment="Center" />
+          <Button Classes="ghost" Content="Apply Now" Command="{Binding ApplyKeyColorsCommand}" />
+          <Button Classes="ghost" Content="Clear" Command="{Binding ClearKeyColorsCommand}" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <TextBlock Text="Tool" VerticalAlignment="Center" />
+          <ComboBox Width="140"
+                    ItemsSource="{Binding KeyPaintModes}"
+                    SelectedItem="{Binding KeyPaintMode}" />
+          <TextBlock Text="Paint: Click keys to color them. Move: Drag keys to reposition."
+                     Foreground="{DynamicResource TextMutedBrush}"
+                     VerticalAlignment="Center" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <TextBlock Text="Key color" VerticalAlignment="Center" />
+          <TextBox Width="140"
+                   Text="{Binding SelectedColorHex}"
+                   Watermark="#RRGGBB" />
+          <Border Width="24"
+                  Height="24"
+                  CornerRadius="12"
+                  Background="{Binding SelectedColorBrush}" />
+          <TextBox Width="100"
+                   Text="{Binding SelectedColorR}"
+                   Watermark="R" />
+          <TextBox Width="100"
+                   Text="{Binding SelectedColorG}"
+                   Watermark="G" />
+          <TextBox Width="100"
+                   Text="{Binding SelectedColorB}"
+                   Watermark="B" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <TextBlock Text="Brightness" VerticalAlignment="Center" />
+          <ComboBox Width="160"
+                    ItemsSource="{Binding BrightnessOptions}"
+                    SelectedItem="{Binding SelectedBrightness}" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
+    <Border Grid.Row="1" Classes="card" Margin="0,18,0,0">
+      <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+        <Viewbox Stretch="Uniform" StretchDirection="Both" MinWidth="400" MinHeight="200">
+          <Grid Width="{Binding KeyboardCanvasWidth}" Height="{Binding KeyboardCanvasHeight}">
+            <Image Source="{Binding KeyboardImage}"
+                   Width="{Binding KeyboardCanvasWidth}"
+                   Height="{Binding KeyboardCanvasHeight}"
+                   Stretch="Fill" />
+            <ItemsControl ItemsSource="{Binding KeyButtons}"
+                          Width="{Binding KeyboardCanvasWidth}"
+                          Height="{Binding KeyboardCanvasHeight}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <Canvas Background="Transparent" 
+                          ClipToBounds="True" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Button Classes="keyButton"
+                          Width="{Binding Width}"
+                          Height="{Binding Height}"
+                          Background="{Binding FillBrush}"
+                          BorderBrush="#40FFFFFF"
+                          BorderThickness="1"
+                          Padding="0"
+                          CornerRadius="2"
+                          Command="{Binding DataContext.KeyClickedCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                          CommandParameter="{Binding}"
+                          Canvas.Left="{Binding X}"
+                          Canvas.Top="{Binding Y}"
+                          ToolTip.Tip="{Binding Id}">
+                    <Button.Styles>
+                      <Style Selector="Button.keyButton">
+                        <Setter Property="Cursor" Value="Hand" />
+                        <Setter Property="Template">
+                          <ControlTemplate>
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="{TemplateBinding CornerRadius}">
+                              <ContentPresenter Content="{TemplateBinding Content}"
+                                                ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                Padding="{TemplateBinding Padding}"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center" />
+                            </Border>
+                          </ControlTemplate>
+                        </Setter>
+                      </Style>
+                      <Style Selector="Button.keyButton:pointerover">
+                        <Setter Property="BorderBrush" Value="#80FFFFFF" />
+                        <Setter Property="BorderThickness" Value="2" />
+                      </Style>
+                      <Style Selector="Button.keyButton:pressed">
+                        <Setter Property="RenderTransform" Value="scale(0.98)" />
+                      </Style>
+                    </Button.Styles>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Grid>
+        </Viewbox>
+      </ScrollViewer>
+    </Border>
+  </Grid>
+</Window>

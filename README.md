@@ -44,3 +44,11 @@ dotnet run --project .\\CherryKeyLayout -- --profile-index 2 --load-settings .\\
 ```
 
 Custom profiles are supported when `mode` is `Custom` and `customColors` are present.
+
+## Avalonia GUI
+
+Run the GUI app (includes tray icon + auto profile switching):
+
+```powershell
+dotnet run --project .\\CherryKeyLayout.Gui
+```

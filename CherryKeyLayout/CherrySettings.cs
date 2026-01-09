@@ -6,7 +6,7 @@ using System.Text.Json.Nodes;
 
 namespace CherryKeyLayout
 {
-    internal sealed class CherrySettingsLighting
+    public sealed class CherrySettingsLighting
     {
         public LightingMode Mode { get; set; } = LightingMode.Static;
         public Brightness Brightness { get; set; } = Brightness.Full;
@@ -18,7 +18,15 @@ namespace CherryKeyLayout
         public Rgb[]? CustomColors { get; set; }
     }
 
-    internal static class CherrySettings
+    public sealed class CherryProfileInfo
+    {
+        public int Index { get; init; }
+        public string? Title { get; init; }
+        public bool AppEnabled { get; init; }
+        public string[] AppPaths { get; init; } = Array.Empty<string>();
+    }
+
+    public static class CherrySettings
     {
         public static (int SelectedIndex, string?[] Titles) ListProfiles(string path)
         {
@@ -36,6 +44,46 @@ namespace CherryKeyLayout
                 .ToArray();
 
             return (selectedIndex, titles);
+        }
+
+        public static (int SelectedIndex, CherryProfileInfo[] Profiles) LoadProfiles(string path)
+        {
+            var root = LoadRoot(path);
+            var profilesRoot = FindFirstObjectWithProperty(root, "profilesList");
+            var profilesList = profilesRoot?["profilesList"]?["content"] as JsonArray;
+            if (profilesList == null)
+            {
+                throw new InvalidOperationException("No profiles found in settings file.");
+            }
+
+            var selectedIndex = profilesRoot?["selectedProfile"]?.GetValue<int>() ?? 0;
+            var profiles = profilesList
+                .Select((profile, index) =>
+                {
+                    var info = profile?["content"]?["info"]?["content"] as JsonObject;
+                    var title = info?["title"]?["content"]?.GetValue<string>();
+                    var appEnabled = info?["appEnabled"]?.GetValue<bool>() ?? false;
+                    var appList = info?["appList"]?["content"] as JsonArray;
+                    var appPaths = appList == null
+                        ? Array.Empty<string>()
+                        : appList
+                            .Select(app => app?["content"]?.GetValue<string>())
+                            .Where(pathValue => !string.IsNullOrWhiteSpace(pathValue))
+                            .Select(pathValue => NormalizeAppPath(pathValue!))
+                            .Where(pathValue => !string.IsNullOrWhiteSpace(pathValue))
+                            .ToArray();
+
+                    return new CherryProfileInfo
+                    {
+                        Index = index,
+                        Title = title,
+                        AppEnabled = appEnabled,
+                        AppPaths = appPaths
+                    };
+                })
+                .ToArray();
+
+            return (selectedIndex, profiles);
         }
 
         public static CherrySettingsLighting LoadLighting(string path, int? profileIndex = null)
@@ -93,6 +141,23 @@ namespace CherryKeyLayout
             colorNode["g"] = lighting.Color.G;
             colorNode["b"] = lighting.Color.B;
 
+            if (lighting.CustomColors != null)
+            {
+                SaveCustomColorsToNode(lightings, lighting.CustomColors);
+            }
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(path, root.ToJsonString(options));
+        }
+
+        public static void SaveCustomColors(string path, Rgb[] colors, int? profileIndex = null)
+        {
+            var root = LoadRoot(path);
+            var lightings = GetLightingNode(root, profileIndex);
+
+            lightings["mode"] = ModeToString(LightingMode.Custom);
+            SaveCustomColorsToNode(lightings, colors);
+
             var options = new JsonSerializerOptions { WriteIndented = true };
             File.WriteAllText(path, root.ToJsonString(options));
         }
@@ -109,6 +174,57 @@ namespace CherryKeyLayout
 
             var selectedIndex = NormalizeProfileIndex(profileIndex, profilesList.Count);
             profilesRoot["selectedProfile"] = selectedIndex;
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(path, root.ToJsonString(options));
+        }
+
+        public static void SetProfileTitle(string path, int profileIndex, string title)
+        {
+            var root = LoadRoot(path);
+            var profileInfo = GetProfileInfoNode(root, profileIndex);
+            var titleNode = profileInfo["title"] as JsonObject ?? new JsonObject();
+            titleNode["content"] = title;
+            if (titleNode["version"] == null)
+            {
+                titleNode["version"] = 0;
+            }
+
+            profileInfo["title"] = titleNode;
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(path, root.ToJsonString(options));
+        }
+
+        public static void SetProfileApps(string path, int profileIndex, string[] apps)
+        {
+            var root = LoadRoot(path);
+            var profileInfo = GetProfileInfoNode(root, profileIndex);
+            var appList = new JsonArray();
+            foreach (var app in apps ?? Array.Empty<string>())
+            {
+                var trimmed = app?.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed))
+                {
+                    continue;
+                }
+
+                var entry = new JsonObject
+                {
+                    ["content"] = trimmed,
+                    ["version"] = 0
+                };
+                appList.Add(entry);
+            }
+
+            var appListNode = profileInfo["appList"] as JsonObject ?? new JsonObject();
+            appListNode["content"] = appList;
+            if (appListNode["version"] == null)
+            {
+                appListNode["version"] = 0;
+            }
+
+            profileInfo["appList"] = appListNode;
+            profileInfo["appEnabled"] = appList.Count > 0;
 
             var options = new JsonSerializerOptions { WriteIndented = true };
             File.WriteAllText(path, root.ToJsonString(options));
@@ -162,6 +278,26 @@ namespace CherryKeyLayout
             throw new InvalidOperationException("No lighting data found in settings file.");
         }
 
+        private static JsonObject GetProfileInfoNode(JsonObject root, int profileIndex)
+        {
+            var profilesRoot = FindFirstObjectWithProperty(root, "profilesList");
+            var profilesList = profilesRoot?["profilesList"]?["content"] as JsonArray;
+            if (profilesList == null || profilesList.Count == 0)
+            {
+                throw new InvalidOperationException("No profiles found in settings file.");
+            }
+
+            var selectedIndex = NormalizeProfileIndex(profileIndex, profilesList.Count);
+            var profile = profilesList[selectedIndex]?["content"] as JsonObject;
+            var info = profile?["info"]?["content"] as JsonObject;
+            if (info == null)
+            {
+                throw new InvalidOperationException("No profile info found in settings file.");
+            }
+
+            return info;
+        }
+
         private static JsonObject? GetLightingsFromDevice(JsonNode? deviceNode)
         {
             var lightings = deviceNode?["Lightings"]?["content"]?["content"] as JsonObject;
@@ -211,6 +347,22 @@ namespace CherryKeyLayout
             return null;
         }
 
+        private static string NormalizeAppPath(string value)
+        {
+            var trimmed = value.Trim();
+            if (trimmed.Length == 0)
+            {
+                return trimmed;
+            }
+
+            if (!trimmed.Contains('/') && !trimmed.Contains('\\') && !Path.IsPathRooted(trimmed))
+            {
+                return Path.GetFileName(trimmed);
+            }
+
+            return trimmed.Replace('\\', '/');
+        }
+
         private static int NormalizeProfileIndex(int index, int count)
         {
             if (count <= 0)
@@ -246,6 +398,40 @@ namespace CherryKeyLayout
             }
 
             return content;
+        }
+
+        private static void SaveCustomColorsToNode(JsonObject lightings, Rgb[] colors)
+        {
+            var customColorsNode = lightings["customColors"] as JsonObject ?? new JsonObject();
+            var list = new JsonArray();
+            var total = CherryProtocol.TotalKeys;
+
+            for (var i = 0; i < total; i++)
+            {
+                var color = i < colors.Length ? colors[i] : new Rgb(0, 0, 0);
+                var content = new JsonObject
+                {
+                    ["a"] = 255,
+                    ["r"] = color.R,
+                    ["g"] = color.G,
+                    ["b"] = color.B,
+                    ["spec"] = 1
+                };
+                var entry = new JsonObject
+                {
+                    ["content"] = content,
+                    ["version"] = 0
+                };
+                list.Add(entry);
+            }
+
+            customColorsNode["content"] = list;
+            if (customColorsNode["version"] == null)
+            {
+                customColorsNode["version"] = 0;
+            }
+
+            lightings["customColors"] = customColorsNode;
         }
 
         private static Rgb[]? ParseCustomColors(JsonObject lightings)

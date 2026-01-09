@@ -87,7 +87,12 @@ namespace CherryKeyLayout
         }
     }
 
-    internal enum LightingMode : byte
+    public static class CherryConstants
+    {
+        public const int TotalKeys = CherryProtocol.TotalKeys;
+    }
+
+    public enum LightingMode : byte
     {
         Wave = 0x00,
         Spectrum = 0x01,
@@ -108,7 +113,7 @@ namespace CherryKeyLayout
         SingleKey = 0x15
     }
 
-    internal enum Speed : byte
+    public enum Speed : byte
     {
         VeryFast = 0,
         Fast = 1,
@@ -117,7 +122,7 @@ namespace CherryKeyLayout
         VerySlow = 4
     }
 
-    internal enum Brightness : byte
+    public enum Brightness : byte
     {
         Off = 0,
         Low = 1,
@@ -126,7 +131,7 @@ namespace CherryKeyLayout
         Full = 4
     }
 
-    internal readonly struct Rgb
+    public readonly struct Rgb
     {
         public byte R { get; }
         public byte G { get; }

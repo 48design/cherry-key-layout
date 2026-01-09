@@ -4,7 +4,7 @@ using HidSharp;
 
 namespace CherryKeyLayout
 {
-    internal sealed class CherryKeyboard : IDisposable
+    public sealed class CherryKeyboard : IDisposable
     {
         private readonly HidDevice _device;
         private readonly HidStream _stream;

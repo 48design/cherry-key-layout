@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultAvaloniaXamlItems>false</EnableDefaultAvaloniaXamlItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\\CherryKeyLayout\\CherryKeyLayout.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.10" />
+    <PackageReference Include="Avalonia.Controls.ColorPicker" Version="11.3.10" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.10" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaXaml Remove="**\\*.axaml" />
+    <AvaloniaXaml Include="App.axaml" />
+    <AvaloniaXaml Include="MainWindow.axaml" />
+    <AvaloniaXaml Include="ExitDialogWindow.axaml" />
+    <AvaloniaXaml Include="DeviceEditorWindow.axaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\\tray-icon.png" />
+    <None Include="Assets\\tray-icon.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,34 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CherryKeyLayout.Gui.ExitDialogWindow"
+        Width="420"
+        Height="260"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        ShowInTaskbar="False"
+        SystemDecorations="None"
+        TransparencyLevelHint="Transparent"
+        Background="Transparent">
+  <Grid Background="#80000000">
+    <Border Classes="card"
+            Width="320"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center">
+      <StackPanel Spacing="12">
+        <TextBlock Text="Exit Cherry Key Layout?" Classes="title" />
+        <TextBlock Text="Do you really want to exit?"
+                   Foreground="{DynamicResource TextMutedBrush}"
+                   TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+          <Button Content="Minimize"
+                  Width="90"
+                  Background="#F39C12"
+                  Foreground="Black"
+                  Click="OnMinimizeClicked" />
+          <Button Classes="primary" Content="Exit" Width="90" Click="OnExitClicked" />
+          <Button Classes="ghost" Content="Cancel" Width="90" Click="OnCancelClicked" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>
