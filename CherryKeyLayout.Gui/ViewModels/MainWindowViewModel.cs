@@ -1,11 +1,13 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -17,6 +19,8 @@ namespace CherryKeyLayout.Gui.ViewModels
 {
     public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     {
+        private const double ProfileKeyOpacity = 0.35;
+        private const double ProfileUnsetOpacity = 0.06;
         private readonly LightingApplier _applier = new();
         private readonly ProfileAutoSwitcher _autoSwitcher;
         private readonly AppPreferences _preferences;
@@ -75,6 +79,18 @@ namespace CherryKeyLayout.Gui.ViewModels
         private ObservableCollection<RunningAppItemViewModel> _runningApps = new();
         private string _appLinksTitle = "App Links";
         private string _selectedLayoutTemplate = "Full Size (104-key)";
+        private bool _showKeyNames;
+        private bool _isRenamingKey;
+        private string _renamePrompt = string.Empty;
+        private KeyButtonViewModel? _hoverKey;
+        private CancellationTokenSource? _hoverDebounceCts;
+        private bool _hoverPreviewActive;
+        private bool _isMappingKeys;
+        private int _mappingIndex;
+        private string _mappingPrompt = string.Empty;
+        private KeyButtonViewModel? _mappingHighlight;
+        private Stack<(KeyButtonViewModel Key, int Index)> _mappingHistory = new();
+        private string? _activeDeviceId;
 
         public MainWindowViewModel()
         {
@@ -181,8 +197,31 @@ namespace CherryKeyLayout.Gui.ViewModels
         public ObservableCollection<DeviceItemViewModel> Devices
         {
             get => _devices;
-            private set => SetProperty(ref _devices, value);
+            private set
+            {
+                if (ReferenceEquals(_devices, value))
+                {
+                    return;
+                }
+
+                if (_devices != null)
+                {
+                    _devices.CollectionChanged -= OnDevicesCollectionChanged;
+                }
+
+                _devices = value;
+
+                if (_devices != null)
+                {
+                    _devices.CollectionChanged += OnDevicesCollectionChanged;
+                }
+
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Devices)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowDeviceSelector)));
+            }
         }
+
+        public bool ShowDeviceSelector => Devices.Count > 1;
 
         public DeviceItemViewModel? SelectedDevice
         {
@@ -294,6 +333,182 @@ namespace CherryKeyLayout.Gui.ViewModels
             private set => SetProperty(ref _statusMessage, value);
         }
 
+        public void SetStatusMessage(string message)
+        {
+            StatusMessage = message;
+        }
+
+        public void SetHoverKey(KeyButtonViewModel key)
+        {
+            if (_hoverKey == key)
+            {
+                return;
+            }
+
+            _hoverKey = key;
+            ScheduleHoverPreviewUpdate();
+        }
+
+        public void ClearHoverKey(KeyButtonViewModel key)
+        {
+            if (_hoverKey != key)
+            {
+                return;
+            }
+
+            _hoverKey = null;
+            ScheduleHoverPreviewUpdate();
+        }
+
+        public void RequestHoverPreviewUpdate()
+        {
+            if (SelectedTabIndex != 0)
+            {
+                return;
+            }
+
+            if (IsMappingKeys)
+            {
+                return;
+            }
+
+            if (_hoverKey == null && !_hoverPreviewActive && !KeyButtons.Any(k => k.IsSelected))
+            {
+                return;
+            }
+
+            ScheduleHoverPreviewUpdate();
+        }
+
+        public async Task StartKeyMappingAsync()
+        {
+            if (KeyButtons.Count == 0)
+            {
+                StatusMessage = "Load or create a layout before mapping keys.";
+                return;
+            }
+
+            if (SelectedDevice == null)
+            {
+                StatusMessage = "Select a device before mapping keys.";
+                return;
+            }
+
+            _hoverDebounceCts?.Cancel();
+            _hoverKey = null;
+            _hoverPreviewActive = false;
+
+            SelectedDevice.KeyMap.Clear();
+            SaveDevicesToPreferences();
+            foreach (var key in KeyButtons)
+            {
+                key.IsMappedKey = false;
+            }
+
+            _mappingIndex = 0;
+            _mappingHistory.Clear();
+            IsMappingKeys = true;
+            UpdateMappingPrompt();
+            ClearMappingHighlight();
+            await ShowMappingIndexAsync(_mappingIndex);
+        }
+
+        public async Task CancelKeyMappingAsync()
+        {
+            if (!IsMappingKeys)
+            {
+                return;
+            }
+
+            IsMappingKeys = false;
+            MappingPrompt = string.Empty;
+            ClearMappingHighlight();
+            foreach (var key in KeyButtons)
+            {
+                key.IsMappedKey = false;
+            }
+            StatusMessage = "Key mapping canceled.";
+            await ClearHoverPreviewAsync();
+        }
+
+        public async Task MapKeyToCurrentIndexAsync(KeyButtonViewModel key)
+        {
+            if (!IsMappingKeys || SelectedDevice == null)
+            {
+                return;
+            }
+
+            SelectedDevice.KeyMap[key.Id] = _mappingIndex;
+            SaveDevicesToPreferences();
+            SetMappingHighlight(key);
+            key.IsMappedKey = true;
+            _mappingHistory.Push((key, _mappingIndex));
+
+            _mappingIndex++;
+            if (_mappingIndex >= CherryConstants.TotalKeys)
+            {
+                IsMappingKeys = false;
+                MappingPrompt = string.Empty;
+                ClearMappingHighlight();
+                StatusMessage = "Key mapping complete.";
+                await ClearHoverPreviewAsync();
+                return;
+            }
+
+            UpdateMappingPrompt();
+            await ShowMappingIndexAsync(_mappingIndex);
+        }
+
+        public async Task SkipMappingAsync()
+        {
+            if (!IsMappingKeys)
+            {
+                return;
+            }
+
+            _mappingHistory.Push((null!, _mappingIndex));
+            _mappingIndex++;
+            if (_mappingIndex >= CherryConstants.TotalKeys)
+            {
+                IsMappingKeys = false;
+                MappingPrompt = string.Empty;
+                ClearMappingHighlight();
+                StatusMessage = "Key mapping complete.";
+                await ClearHoverPreviewAsync();
+                return;
+            }
+
+            UpdateMappingPrompt();
+            await ShowMappingIndexAsync(_mappingIndex);
+        }
+
+        public async Task StepBackMappingAsync()
+        {
+            if (!IsMappingKeys || SelectedDevice == null)
+            {
+                return;
+            }
+
+            if (_mappingHistory.Count == 0)
+            {
+                return;
+            }
+
+            var (key, index) = _mappingHistory.Pop();
+            _mappingIndex = index;
+
+            if (key != null)
+            {
+                SelectedDevice.KeyMap.Remove(key.Id);
+                key.IsMappedKey = false;
+                SaveDevicesToPreferences();
+            }
+
+            ClearMappingHighlight();
+            UpdateMappingPrompt();
+            await ShowMappingIndexAsync(_mappingIndex);
+        }
+
         public string ProfileCountLabel
         {
             get => _profileCountLabel;
@@ -357,7 +572,29 @@ namespace CherryKeyLayout.Gui.ViewModels
         public int SelectedTabIndex
         {
             get => _selectedTabIndex;
-            set => SetProperty(ref _selectedTabIndex, value);
+            set
+            {
+                if (SetProperty(ref _selectedTabIndex, value))
+                {
+                    if (_selectedTabIndex == 0)
+                    {
+                        ScheduleHoverPreviewUpdate();
+                    }
+                    else if (_selectedTabIndex == 2)
+                    {
+                        EnsureDeviceLayoutLoaded();
+                        ApplyProfileColorsFromSettings();
+                    }
+                    else
+                    {
+                        if (IsMappingKeys)
+                        {
+                            _ = CancelKeyMappingAsync();
+                        }
+                        _ = ClearHoverPreviewAsync();
+                    }
+                }
+            }
         }
 
 
@@ -383,6 +620,37 @@ namespace CherryKeyLayout.Gui.ViewModels
             }
         }
 
+        private void EnsureDeviceLayoutLoaded()
+        {
+            if (Devices.Count > 0 && SelectedDevice == null)
+            {
+                SelectedDevice = Devices[0];
+            }
+
+            if (SelectedDevice == null)
+            {
+                return;
+            }
+
+            if (!string.Equals(_activeDeviceId, SelectedDevice.Id, StringComparison.Ordinal))
+            {
+                ApplySelectedDevice();
+                return;
+            }
+
+            if (KeyboardImage == null && !string.IsNullOrWhiteSpace(SelectedDevice.ImagePath)
+                && File.Exists(SelectedDevice.ImagePath))
+            {
+                SetKeyboardImage(SelectedDevice.ImagePath);
+            }
+
+            if (KeyButtons.Count == 0 && !string.IsNullOrWhiteSpace(SelectedDevice.LayoutPath)
+                && File.Exists(SelectedDevice.LayoutPath))
+            {
+                LoadKeyboardLayout(SelectedDevice.LayoutPath);
+            }
+        }
+
         public string SelectedLayoutTemplate
         {
             get => _selectedLayoutTemplate;
@@ -393,6 +661,36 @@ namespace CherryKeyLayout.Gui.ViewModels
                     GenerateFromTemplateCommand.RaiseCanExecuteChanged();
                 }
             }
+        }
+
+        public bool ShowKeyNames
+        {
+            get => _showKeyNames;
+            set => SetProperty(ref _showKeyNames, value);
+        }
+
+        public bool IsRenamingKey
+        {
+            get => _isRenamingKey;
+            set => SetProperty(ref _isRenamingKey, value);
+        }
+
+        public string RenamePrompt
+        {
+            get => _renamePrompt;
+            set => SetProperty(ref _renamePrompt, value);
+        }
+
+        public bool IsMappingKeys
+        {
+            get => _isMappingKeys;
+            private set => SetProperty(ref _isMappingKeys, value);
+        }
+
+        public string MappingPrompt
+        {
+            get => _mappingPrompt;
+            private set => SetProperty(ref _mappingPrompt, value);
         }
 
         public LightingMode SelectedLightingMode
@@ -727,6 +1025,16 @@ namespace CherryKeyLayout.Gui.ViewModels
             try
             {
                 var layout = KeyboardLayout.Load(path);
+                if (KeyboardImage != null)
+                {
+                    var size = KeyboardImage.PixelSize;
+                    if (Math.Abs(layout.Width - size.Width) > 0.5 || Math.Abs(layout.Height - size.Height) > 0.5)
+                    {
+                        NormalizeLayoutToImage(layout.Keys, size.Width, size.Height);
+                        layout.Width = size.Width;
+                        layout.Height = size.Height;
+                    }
+                }
                 _keyboardLayout = layout;
                 if (SelectedDevice != null)
                 {
@@ -819,6 +1127,11 @@ namespace CherryKeyLayout.Gui.ViewModels
         private bool CanGenerateLayout()
         {
             return KeyboardImage != null;
+        }
+
+        private void OnDevicesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowDeviceSelector)));
         }
 
 
@@ -954,6 +1267,7 @@ namespace CherryKeyLayout.Gui.ViewModels
                 SelectedProfile.AppPaths.Select(value => new AppLinkItemViewModel(value)));
             SaveProfileEditsCommand.RaiseCanExecuteChanged();
             RemoveAppLinkCommand.RaiseCanExecuteChanged();
+            ApplyProfileColorsFromSettings();
         }
 
         private void SetDefaultProfile()
@@ -990,6 +1304,7 @@ namespace CherryKeyLayout.Gui.ViewModels
                     SettingsPath,
                     SelectedProfile.Index,
                     ProfileAppsEdit.Select(item => item.Value).ToArray());
+                SaveProfileColorsToSettings();
 
                 SelectedProfile = null;
                 ReloadProfiles();
@@ -1032,6 +1347,11 @@ namespace CherryKeyLayout.Gui.ViewModels
 
             ProfileTitleEdit = trimmed;
             IsEditingProfileTitle = false;
+            if (SelectedProfile != null)
+            {
+                SelectedProfile.Title = trimmed;
+            }
+            SelectedProfileTitle = trimmed;
         }
 
         private void CancelEditProfileTitle()
@@ -1042,7 +1362,7 @@ namespace CherryKeyLayout.Gui.ViewModels
 
         private bool CanProfileKeyClick(object? param)
         {
-            return SelectedTabIndex == 1 && SelectedProfile != null;
+            return SelectedTabIndex == 2 && SelectedProfile != null;
         }
 
         private void OnProfileKeyClicked(object? param)
@@ -1052,9 +1372,13 @@ namespace CherryKeyLayout.Gui.ViewModels
                 return;
             }
 
-            key.IsSelected = !key.IsSelected;
+            key.IsSelected = true;
+            key.Color = ProfileKeyColor;
+            SetProfileKeyBrush(key, ProfileKeyColor);
             ClearProfileKeySelectionCommand.RaiseCanExecuteChanged();
             ApplyProfileKeyColorCommand.RaiseCanExecuteChanged();
+            StatusMessage = $"Painted \"{key.Id}\".";
+            _ = ApplyKeyColorsToDeviceAsync();
         }
 
         private bool CanApplyProfileKeyColor()
@@ -1072,10 +1396,11 @@ namespace CherryKeyLayout.Gui.ViewModels
             foreach (var key in KeyButtons.Where(k => k.IsSelected))
             {
                 key.Color = ProfileKeyColor;
-                key.FillBrush = new SolidColorBrush(ProfileKeyColor);
+                SetProfileKeyBrush(key, ProfileKeyColor);
             }
 
             StatusMessage = $"Applied color to {KeyButtons.Count(k => k.IsSelected)} key(s).";
+            _ = ApplyKeyColorsToDeviceAsync();
         }
 
         private bool CanClearProfileKeySelection()
@@ -1272,6 +1597,531 @@ namespace CherryKeyLayout.Gui.ViewModels
             }
         }
 
+        public void AddKeyAt(double x, double y, bool select)
+        {
+            var nextIndex = KeyButtons.Count == 0 ? 0 : KeyButtons.Max(k => k.Index) + 1;
+            var key = new KeyDefinition
+            {
+                Id = $"Key {nextIndex + 1}",
+                Index = nextIndex,
+                X = Math.Clamp(x, 0, KeyboardCanvasWidth),
+                Y = Math.Clamp(y, 0, KeyboardCanvasHeight),
+                Width = 24,
+                Height = 24
+            };
+
+            if (select)
+            {
+                foreach (var entry in KeyButtons)
+                {
+                    entry.IsSelected = false;
+                    entry.ShowResizeHandles = false;
+                }
+            }
+
+            KeyButtons.Add(new KeyButtonViewModel(key) { IsSelected = select, ShowResizeHandles = select });
+            IsLayoutReady = KeyButtons.Count > 0;
+            ApplyKeyColorsCommand.RaiseCanExecuteChanged();
+        }
+
+        public void RemoveSelectedKeys()
+        {
+            var selected = KeyButtons.Where(k => k.IsSelected).ToList();
+            if (selected.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var key in selected)
+            {
+                KeyButtons.Remove(key);
+            }
+
+            IsLayoutReady = KeyButtons.Count > 0;
+            ApplyKeyColorsCommand.RaiseCanExecuteChanged();
+        }
+
+        public void RemoveKey(KeyButtonViewModel key)
+        {
+            if (KeyButtons.Remove(key))
+            {
+                IsLayoutReady = KeyButtons.Count > 0;
+                ApplyKeyColorsCommand.RaiseCanExecuteChanged();
+            }
+        }
+
+        private void ScheduleHoverPreviewUpdate()
+        {
+            _hoverDebounceCts?.Cancel();
+            var cts = new CancellationTokenSource();
+            _hoverDebounceCts = cts;
+            _ = ApplyHoverPreviewAfterDelayAsync(cts);
+        }
+
+        private async Task ClearHoverPreviewAsync()
+        {
+            _hoverDebounceCts?.Cancel();
+            _hoverKey = null;
+
+            if (!_hoverPreviewActive)
+            {
+                return;
+            }
+
+            _hoverPreviewActive = false;
+            if (SelectedProfile != null && !string.IsNullOrWhiteSpace(SettingsPath))
+            {
+                try
+                {
+                    await ApplySelectedProfileAsync();
+                }
+                catch (Exception ex)
+                {
+                    StatusMessage = ex.Message;
+                }
+            }
+        }
+
+        private async Task ShowMappingIndexAsync(int index)
+        {
+            if (index < 0 || index >= CherryConstants.TotalKeys)
+            {
+                return;
+            }
+
+            var colors = new Rgb[CherryConstants.TotalKeys];
+            colors[index] = new Rgb(255, 0, 0);
+
+            try
+            {
+                var profileIndex = SelectedProfile?.Index ?? 0;
+                await _applier.ApplyCustomColorsAsync(
+                    SettingsPath,
+                    profileIndex,
+                    colors,
+                    Brightness.Full,
+                    Speed.Medium,
+                    false);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        }
+
+        private void UpdateMappingPrompt()
+        {
+            MappingPrompt = $"Mapping {_mappingIndex + 1}/{CherryConstants.TotalKeys}. Click the red key in the app. Esc cancels.";
+        }
+
+        private void SetMappingHighlight(KeyButtonViewModel key)
+        {
+            if (_mappingHighlight != null)
+            {
+                _mappingHighlight.IsMappingHighlight = false;
+            }
+
+            _mappingHighlight = key;
+            _mappingHighlight.IsMappingHighlight = true;
+        }
+
+        private void ClearMappingHighlight()
+        {
+            if (_mappingHighlight == null)
+            {
+                return;
+            }
+
+            _mappingHighlight.IsMappingHighlight = false;
+            _mappingHighlight = null;
+        }
+
+        private async Task ApplyHoverPreviewAfterDelayAsync(CancellationTokenSource cts)
+        {
+            try
+            {
+                await Task.Delay(25, cts.Token);
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+
+            if (cts.IsCancellationRequested)
+            {
+                return;
+            }
+
+            await ApplyHoverPreviewAsync(cts.Token);
+        }
+
+        private async Task ApplyHoverPreviewAsync(CancellationToken token)
+        {
+            if (SelectedTabIndex != 0)
+            {
+                return;
+            }
+
+            if (IsMappingKeys)
+            {
+                return;
+            }
+
+            var snapshot = await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var hasHighlight = true;
+                var colors = new Rgb[CherryConstants.TotalKeys];
+                foreach (var key in KeyButtons)
+                {
+                    if (!TryGetHardwareIndex(key, out var hardwareIndex))
+                    {
+                        continue;
+                    }
+
+                    var previewColor = GetPreviewColor(key);
+                    colors[hardwareIndex] = new Rgb(previewColor.R, previewColor.G, previewColor.B);
+                }
+
+                return (colors, hasHighlight);
+            });
+
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            try
+            {
+                var profileIndex = SelectedProfile?.Index ?? 0;
+                await _applier.ApplyCustomColorsAsync(
+                    SettingsPath,
+                    profileIndex,
+                    snapshot.colors,
+                    SelectedBrightness,
+                    SelectedSpeed,
+                    false);
+                _hoverPreviewActive = snapshot.hasHighlight;
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        }
+
+        private Color GetPreviewColor(KeyButtonViewModel key)
+        {
+            if (key.IsSelected)
+            {
+                return Color.FromRgb(0, 191, 255);
+            }
+
+            if (_hoverKey == key)
+            {
+                return Color.FromRgb(255, 255, 255);
+            }
+
+            return Color.FromRgb(26, 26, 26);
+        }
+
+        private bool TryGetHardwareIndex(KeyButtonViewModel key, out int hardwareIndex)
+        {
+            hardwareIndex = -1;
+            var map = SelectedDevice?.KeyMap;
+            var hasMapping = map != null && map.Count > 0;
+
+            if (hasMapping)
+            {
+                return map!.TryGetValue(key.Id, out hardwareIndex)
+                       && hardwareIndex >= 0
+                       && hardwareIndex < CherryConstants.TotalKeys;
+            }
+
+            return key.Index >= 0
+                   && key.Index < CherryConstants.TotalKeys
+                   && (hardwareIndex = key.Index) >= 0;
+        }
+
+        private void ApplyProfileColorsFromSettings()
+        {
+            if (SelectedProfile == null || !File.Exists(SettingsPath))
+            {
+                return;
+            }
+
+            CherrySettingsLighting lighting;
+            try
+            {
+                lighting = CherrySettings.LoadLighting(SettingsPath, SelectedProfile.Index);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+                return;
+            }
+
+            var customColors = lighting.CustomColors;
+            var hasCustomColors = customColors != null && customColors.Length > 0;
+            var fallbackColor = Color.FromRgb(lighting.Color.R, lighting.Color.G, lighting.Color.B);
+
+            if (!hasCustomColors)
+            {
+                foreach (var key in KeyButtons)
+                {
+                    key.Color = fallbackColor;
+                    SetProfileKeyBrush(key, fallbackColor);
+                }
+                return;
+            }
+
+            foreach (var key in KeyButtons)
+            {
+                if (!TryGetHardwareIndex(key, out var hardwareIndex))
+                {
+                    key.Color = Colors.Transparent;
+                    key.FillBrush = new SolidColorBrush(Colors.White, ProfileUnsetOpacity);
+                    continue;
+                }
+
+                if (hardwareIndex < 0 || hardwareIndex >= customColors!.Length)
+                {
+                    key.Color = Colors.Transparent;
+                    key.FillBrush = new SolidColorBrush(Colors.White, ProfileUnsetOpacity);
+                    continue;
+                }
+
+                var rgb = customColors[hardwareIndex];
+                var color = Color.FromRgb(rgb.R, rgb.G, rgb.B);
+                key.Color = color;
+                SetProfileKeyBrush(key, color);
+            }
+        }
+
+        private void SaveProfileColorsToSettings()
+        {
+            if (SelectedProfile == null || !File.Exists(SettingsPath))
+            {
+                return;
+            }
+
+            CherrySettingsLighting lighting;
+            try
+            {
+                lighting = CherrySettings.LoadLighting(SettingsPath, SelectedProfile.Index);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+                return;
+            }
+
+            var colors = BuildProfileCustomColors(lighting);
+            lighting.Mode = LightingMode.Custom;
+            lighting.CustomColors = colors;
+
+            try
+            {
+                CherrySettings.SaveLighting(SettingsPath, lighting, SelectedProfile.Index);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        }
+
+        private Rgb[] BuildProfileCustomColors(CherrySettingsLighting lighting)
+        {
+            var total = CherryConstants.TotalKeys;
+            var colors = new Rgb[total];
+            if (lighting.CustomColors != null && lighting.CustomColors.Length == total)
+            {
+                Array.Copy(lighting.CustomColors, colors, total);
+            }
+
+            foreach (var key in KeyButtons)
+            {
+                if (!TryGetHardwareIndex(key, out var hardwareIndex))
+                {
+                    continue;
+                }
+
+                var color = key.Color;
+                colors[hardwareIndex] = new Rgb(color.R, color.G, color.B);
+            }
+
+            return colors;
+        }
+
+        private void SetProfileKeyBrush(KeyButtonViewModel key, Color color)
+        {
+            var opacity = GetProfileKeyOpacity(color);
+            key.FillBrush = new SolidColorBrush(color, opacity);
+        }
+
+        private static double GetProfileKeyOpacity(Color color)
+        {
+            if (color.R == 0 && color.G == 0 && color.B == 0)
+            {
+                return ProfileUnsetOpacity;
+            }
+
+            return ProfileKeyOpacity;
+        }
+
+
+        public void AddKeys(IEnumerable<KeyDefinition> definitions, bool select)
+        {
+            var nextIndex = KeyButtons.Count == 0 ? 0 : KeyButtons.Max(k => k.Index) + 1;
+            if (select)
+            {
+                foreach (var key in KeyButtons)
+                {
+                    key.IsSelected = false;
+                    key.ShowResizeHandles = false;
+                }
+            }
+
+            foreach (var definition in definitions)
+            {
+                var key = new KeyDefinition
+                {
+                    Id = definition.Id,
+                    Index = nextIndex++,
+                    X = Math.Clamp(definition.X, 0, KeyboardCanvasWidth),
+                    Y = Math.Clamp(definition.Y, 0, KeyboardCanvasHeight),
+                    Width = definition.Width,
+                    Height = definition.Height
+                };
+
+                KeyButtons.Add(new KeyButtonViewModel(key) { IsSelected = select, ShowResizeHandles = select });
+            }
+
+            IsLayoutReady = KeyButtons.Count > 0;
+            ApplyKeyColorsCommand.RaiseCanExecuteChanged();
+        }
+
+        public void AlignSelectedKeysLeft()
+        {
+            var selected = KeyButtons.Where(k => k.IsSelected).ToList();
+            if (selected.Count == 0)
+            {
+                return;
+            }
+
+            var minX = selected.Min(k => k.X);
+            foreach (var key in selected)
+            {
+                key.X = Math.Clamp(minX, 0, KeyboardCanvasWidth - key.Width);
+            }
+        }
+
+        public void AlignSelectedKeysCenter()
+        {
+            var selected = KeyButtons.Where(k => k.IsSelected).ToList();
+            if (selected.Count == 0)
+            {
+                return;
+            }
+
+            var minX = selected.Min(k => k.X);
+            var maxX = selected.Max(k => k.X + k.Width);
+            var center = (minX + maxX) / 2.0;
+
+            foreach (var key in selected)
+            {
+                var targetX = center - (key.Width / 2.0);
+                key.X = Math.Clamp(targetX, 0, KeyboardCanvasWidth - key.Width);
+            }
+        }
+
+        public void AlignSelectedKeysRight()
+        {
+            var selected = KeyButtons.Where(k => k.IsSelected).ToList();
+            if (selected.Count == 0)
+            {
+                return;
+            }
+
+            var maxX = selected.Max(k => k.X + k.Width);
+            foreach (var key in selected)
+            {
+                key.X = Math.Clamp(maxX - key.Width, 0, KeyboardCanvasWidth - key.Width);
+            }
+        }
+
+        public void AlignSelectedKeysTop()
+        {
+            var selected = KeyButtons.Where(k => k.IsSelected).ToList();
+            if (selected.Count == 0)
+            {
+                return;
+            }
+
+            var minY = selected.Min(k => k.Y);
+            foreach (var key in selected)
+            {
+                key.Y = Math.Clamp(minY, 0, KeyboardCanvasHeight - key.Height);
+            }
+        }
+
+        public void AlignSelectedKeysBottom()
+        {
+            var selected = KeyButtons.Where(k => k.IsSelected).ToList();
+            if (selected.Count == 0)
+            {
+                return;
+            }
+
+            var maxY = selected.Max(k => k.Y + k.Height);
+            foreach (var key in selected)
+            {
+                key.Y = Math.Clamp(maxY - key.Height, 0, KeyboardCanvasHeight - key.Height);
+            }
+        }
+
+        public void DistributeSelectedKeysHorizontally()
+        {
+            var selected = KeyButtons.Where(k => k.IsSelected).OrderBy(k => k.X).ToList();
+            if (selected.Count < 3)
+            {
+                return;
+            }
+
+            var minX = selected.Min(k => k.X);
+            var maxRight = selected.Max(k => k.X + k.Width);
+            var totalWidth = selected.Sum(k => k.Width);
+            var span = maxRight - minX;
+            var gap = Math.Max(0, (span - totalWidth) / (selected.Count - 1));
+
+            var cursor = minX;
+            foreach (var key in selected)
+            {
+                key.X = Math.Clamp(cursor, 0, KeyboardCanvasWidth - key.Width);
+                cursor += key.Width + gap;
+            }
+        }
+
+        public void DistributeSelectedKeysVertically()
+        {
+            var selected = KeyButtons.Where(k => k.IsSelected).OrderBy(k => k.Y).ToList();
+            if (selected.Count < 3)
+            {
+                return;
+            }
+
+            var minY = selected.Min(k => k.Y);
+            var maxBottom = selected.Max(k => k.Y + k.Height);
+            var totalHeight = selected.Sum(k => k.Height);
+            var span = maxBottom - minY;
+            var gap = Math.Max(0, (span - totalHeight) / (selected.Count - 1));
+
+            var cursor = minY;
+            foreach (var key in selected)
+            {
+                key.Y = Math.Clamp(cursor, 0, KeyboardCanvasHeight - key.Height);
+                cursor += key.Height + gap;
+            }
+        }
+
         private async Task ApplyKeyColorAsync(object? param)
         {
             if (param is not KeyButtonViewModel key)
@@ -1327,13 +2177,13 @@ namespace CherryKeyLayout.Gui.ViewModels
             var colors = new Rgb[CherryConstants.TotalKeys];
             foreach (var key in KeyButtons)
             {
-                if (key.Index < 0 || key.Index >= colors.Length)
+                if (!TryGetHardwareIndex(key, out var hardwareIndex))
                 {
                     continue;
                 }
 
                 var color = key.Color;
-                colors[key.Index] = new Rgb(color.R, color.G, color.B);
+                colors[hardwareIndex] = new Rgb(color.R, color.G, color.B);
             }
 
             try
@@ -1452,6 +2302,10 @@ namespace CherryKeyLayout.Gui.ViewModels
             }
             IsLayoutReady = KeyButtons.Count > 0;
             ApplyKeyColorsCommand.RaiseCanExecuteChanged();
+            if (SelectedTabIndex == 2 && SelectedProfile != null)
+            {
+                ApplyProfileColorsFromSettings();
+            }
         }
 
         private void GenerateGridLayout()
@@ -2011,6 +2865,7 @@ namespace CherryKeyLayout.Gui.ViewModels
                 return;
             }
 
+            _activeDeviceId = SelectedDevice.Id;
             DeviceName = SelectedDevice.Name;
             _preferences.SelectedDeviceId = SelectedDevice.Id;
             SaveDevicesToPreferences();

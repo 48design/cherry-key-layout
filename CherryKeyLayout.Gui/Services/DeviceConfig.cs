@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace CherryKeyLayout.Gui.Services
 {
     public sealed class DeviceConfig
@@ -6,5 +8,6 @@ namespace CherryKeyLayout.Gui.Services
         public string Name { get; set; } = "Cherry MX Board";
         public string? ImagePath { get; set; }
         public string? LayoutPath { get; set; }
+        public Dictionary<string, int> KeyMap { get; set; } = new();
     }
 }

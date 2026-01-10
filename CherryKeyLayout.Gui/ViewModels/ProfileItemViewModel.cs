@@ -9,11 +9,12 @@ namespace CherryKeyLayout.Gui.ViewModels
     public sealed class ProfileItemViewModel : INotifyPropertyChanged
     {
         private bool _isDefault;
+        private string _title;
 
         public ProfileItemViewModel(int index, string? title, bool appEnabled, IReadOnlyList<string> appPaths, bool isDefault)
         {
             Index = index;
-            Title = string.IsNullOrWhiteSpace(title) ? $"Profile {index + 1}" : title!;
+            _title = string.IsNullOrWhiteSpace(title) ? $"Profile {index + 1}" : title!;
             AppEnabled = appEnabled;
             AppPaths = appPaths?.ToArray() ?? Array.Empty<string>();
             _isDefault = isDefault;
@@ -23,7 +24,11 @@ namespace CherryKeyLayout.Gui.ViewModels
         public event PropertyChangedEventHandler? PropertyChanged;
 
         public int Index { get; }
-        public string Title { get; }
+        public string Title
+        {
+            get => _title;
+            set => SetProperty(ref _title, value);
+        }
         public bool AppEnabled { get; }
         public string[] AppPaths { get; }
         public string AppSummary { get; }

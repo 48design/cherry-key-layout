@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using CherryKeyLayout.Gui.Services;
 
@@ -9,6 +10,7 @@ namespace CherryKeyLayout.Gui.ViewModels
         private string _name;
         private string? _imagePath;
         private string? _layoutPath;
+        private Dictionary<string, int> _keyMap;
 
         public DeviceItemViewModel(DeviceConfig config)
         {
@@ -16,6 +18,7 @@ namespace CherryKeyLayout.Gui.ViewModels
             _name = config.Name;
             _imagePath = config.ImagePath;
             _layoutPath = config.LayoutPath;
+            _keyMap = config.KeyMap ?? new Dictionary<string, int>();
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -40,6 +43,12 @@ namespace CherryKeyLayout.Gui.ViewModels
             set => SetProperty(ref _layoutPath, value);
         }
 
+        public Dictionary<string, int> KeyMap
+        {
+            get => _keyMap;
+            set => SetProperty(ref _keyMap, value);
+        }
+
         public DeviceConfig ToConfig()
         {
             return new DeviceConfig
@@ -47,7 +56,8 @@ namespace CherryKeyLayout.Gui.ViewModels
                 Id = Id,
                 Name = Name,
                 ImagePath = ImagePath,
-                LayoutPath = LayoutPath
+                LayoutPath = LayoutPath,
+                KeyMap = new Dictionary<string, int>(KeyMap)
             };
         }
 

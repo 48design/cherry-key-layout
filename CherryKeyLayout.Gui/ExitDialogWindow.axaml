@@ -20,12 +20,12 @@
                    Foreground="{DynamicResource TextMutedBrush}"
                    TextWrapping="Wrap" />
         <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+          <Button Classes="primary" Content="Exit" Width="90" Click="OnExitClicked" />
           <Button Content="Minimize"
                   Width="90"
                   Background="#F39C12"
                   Foreground="Black"
                   Click="OnMinimizeClicked" />
-          <Button Classes="primary" Content="Exit" Width="90" Click="OnExitClicked" />
           <Button Classes="ghost" Content="Cancel" Width="90" Click="OnCancelClicked" />
         </StackPanel>
       </StackPanel>

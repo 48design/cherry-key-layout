@@ -19,15 +19,20 @@ namespace CherryKeyLayout.Gui.ViewModels
     {
         private Color _color = Colors.Transparent;
         private IBrush? _fillBrush;
+        private string _id;
         private double _x;
         private double _y;
         private double _width;
         private double _height;
         private bool _isSelected;
+        private bool _showResizeHandles;
+        private bool _isMappingHighlight;
+        private bool _isMappedKey;
+        private bool _isHovering;
 
         public KeyButtonViewModel(KeyDefinition definition)
         {
-            Id = definition.Id ?? $"Key {definition.Index + 1}";
+            _id = definition.Id ?? $"Key {definition.Index + 1}";
             Index = definition.Index;
             _x = definition.X;
             _y = definition.Y;
@@ -37,7 +42,11 @@ namespace CherryKeyLayout.Gui.ViewModels
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
-        public string Id { get; }
+        public string Id
+        {
+            get => _id;
+            set => SetProperty(ref _id, value);
+        }
         public int Index { get; }
         
         public double X
@@ -80,6 +89,30 @@ namespace CherryKeyLayout.Gui.ViewModels
                     PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FillBrush)));
                 }
             }
+        }
+
+        public bool ShowResizeHandles
+        {
+            get => _showResizeHandles;
+            set => SetProperty(ref _showResizeHandles, value);
+        }
+
+        public bool IsMappingHighlight
+        {
+            get => _isMappingHighlight;
+            set => SetProperty(ref _isMappingHighlight, value);
+        }
+
+        public bool IsMappedKey
+        {
+            get => _isMappedKey;
+            set => SetProperty(ref _isMappedKey, value);
+        }
+
+        public bool IsHovering
+        {
+            get => _isHovering;
+            set => SetProperty(ref _isHovering, value);
         }
 
         public IBrush FillBrush
