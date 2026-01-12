@@ -12,6 +12,8 @@ namespace CherryKeyLayout.Gui.Services
         public string? KeyboardImagePath { get; set; }
         public string? KeyboardLayoutPath { get; set; }
         public string? SelectedDeviceId { get; set; }
+        public bool RunOnSystemStart { get; set; }
+        public int StartupDelaySeconds { get; set; }
         public DeviceConfig[] Devices { get; set; } = Array.Empty<DeviceConfig>();
 
         public static AppPreferences Load()

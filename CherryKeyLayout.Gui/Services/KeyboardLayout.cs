@@ -31,12 +31,18 @@ namespace CherryKeyLayout.Gui.Services
             var keyWidth = width / (double)columns;
             var keyHeight = height / (double)rows;
 
-            var keys = Enumerable.Range(0, keyCount)
-                .Select(index =>
+            var keys = new List<KeyDefinition>(keyCount);
+            var index = 0;
+            for (var col = 0; col < columns; col++)
+            {
+                for (var row = 0; row < rows; row++)
                 {
-                    var row = index / columns;
-                    var col = index % columns;
-                    return new KeyDefinition
+                    if (index >= keyCount)
+                    {
+                        break;
+                    }
+
+                    keys.Add(new KeyDefinition
                     {
                         Id = $"Key {index + 1}",
                         Index = index,
@@ -44,15 +50,16 @@ namespace CherryKeyLayout.Gui.Services
                         Y = row * keyHeight,
                         Width = keyWidth,
                         Height = keyHeight
-                    };
-                })
-                .ToArray();
+                    });
+                    index++;
+                }
+            }
 
             return new KeyboardLayout
             {
                 Width = width,
                 Height = height,
-                Keys = keys
+                Keys = keys.ToArray()
             };
         }
 

@@ -7,8 +7,10 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Controls.Shapes;
+using CherryKeyLayout;
 using CherryKeyLayout.Gui.Services;
 using CherryKeyLayout.Gui.ViewModels;
 
@@ -1351,6 +1353,59 @@ namespace CherryKeyLayout.Gui
             UpdateSelectionOverlay();
         }
 
+        private async void OnKeyRemapClicked(object? sender, RoutedEventArgs e)
+        {
+            if (!TryGetKeyFromMenuItem(sender, out var key))
+            {
+                return;
+            }
+
+            if (_viewModel.IsMappingKeys)
+            {
+                _viewModel.SetStatusMessage("Stop key mapping before remapping.");
+                return;
+            }
+
+            if (_viewModel.SelectedDevice == null)
+            {
+                _viewModel.SetStatusMessage("Select a device before remapping keys.");
+                return;
+            }
+
+            int? currentIndex = null;
+            if (_viewModel.SelectedDevice.KeyMap.TryGetValue(key.Id, out var mappedIndex))
+            {
+                currentIndex = mappedIndex;
+            }
+
+            int? newIndex = null;
+            try
+            {
+                newIndex = await PromptForHardwareIndexByPreviewAsync(key.Id, currentIndex);
+            }
+            finally
+            {
+                await _viewModel.RestoreHardwarePreviewAsync();
+            }
+
+            if (!newIndex.HasValue)
+            {
+                return;
+            }
+
+            if (_viewModel.TryRemapKey(key, newIndex.Value, out var message))
+            {
+                if (!string.IsNullOrWhiteSpace(message))
+                {
+                    _viewModel.SetStatusMessage(message);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(message))
+            {
+                _viewModel.SetStatusMessage(message);
+            }
+        }
+
         private static bool TryGetKeyFromMenuItem(object? sender, out KeyButtonViewModel key)
         {
             key = null!;
@@ -1449,6 +1504,135 @@ namespace CherryKeyLayout.Gui
                 {
                     tcs.TrySetResult(null);
                     CloseWindow();
+                }
+            };
+            window.Closed += (_, __) =>
+            {
+                if (!tcs.Task.IsCompleted)
+                {
+                    tcs.TrySetResult(null);
+                }
+            };
+
+            await window.ShowDialog(this);
+            return await tcs.Task;
+        }
+
+        private async Task<int?> PromptForHardwareIndexByPreviewAsync(string keyId, int? currentIndex)
+        {
+            var tcs = new TaskCompletionSource<int?>();
+            var total = CherryConstants.TotalKeys;
+            var index = Math.Clamp(currentIndex ?? 0, 0, total - 1);
+
+            var info = new TextBlock
+            {
+                FontWeight = FontWeight.SemiBold
+            };
+
+            var hint = new TextBlock
+            {
+                Text = "Use Next/Previous to highlight a hardware key, then Select.",
+                Foreground = new SolidColorBrush(Color.Parse("#B0B0B0")),
+                TextWrapping = TextWrapping.Wrap
+            };
+
+            var okButton = new Button { Content = "Select", MinWidth = 90 };
+            var prevButton = new Button { Content = "Previous", MinWidth = 90 };
+            var nextButton = new Button { Content = "Next", MinWidth = 90 };
+            var cancelButton = new Button { Content = "Cancel", MinWidth = 90 };
+
+            Window? window = null;
+
+            void CloseWindow()
+            {
+                if (window?.IsVisible == true)
+                {
+                    window.Close();
+                }
+            }
+
+            async Task UpdatePreviewAsync()
+            {
+                info.Text = $"Remap \"{keyId}\" -> hardware key {index + 1}/{total}";
+                await _viewModel.PreviewHardwareIndexAsync(index);
+            }
+
+            async void StepIndex(int delta)
+            {
+                index = (index + delta + total) % total;
+                await UpdatePreviewAsync();
+            }
+
+            okButton.Click += (_, __) =>
+            {
+                tcs.TrySetResult(index);
+                CloseWindow();
+            };
+            prevButton.Click += (_, __) => StepIndex(-1);
+            nextButton.Click += (_, __) => StepIndex(1);
+            cancelButton.Click += (_, __) =>
+            {
+                tcs.TrySetResult(null);
+                CloseWindow();
+            };
+
+            var navButtons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            navButtons.Children.Add(prevButton);
+            navButtons.Children.Add(nextButton);
+
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            buttons.Children.Add(okButton);
+            buttons.Children.Add(cancelButton);
+
+            var layout = new StackPanel
+            {
+                Spacing = 8,
+                Margin = new Thickness(12)
+            };
+            layout.Children.Add(info);
+            layout.Children.Add(hint);
+            layout.Children.Add(navButtons);
+            layout.Children.Add(buttons);
+
+            window = new Window
+            {
+                Title = "Remap key",
+                SizeToContent = SizeToContent.WidthAndHeight,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false,
+                Content = layout
+            };
+
+            window.Opened += async (_, __) => await UpdatePreviewAsync();
+            window.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    tcs.TrySetResult(index);
+                    CloseWindow();
+                }
+                else if (e.Key == Key.Escape)
+                {
+                    tcs.TrySetResult(null);
+                    CloseWindow();
+                }
+                else if (e.Key == Key.Left || e.Key == Key.Up)
+                {
+                    StepIndex(-1);
+                }
+                else if (e.Key == Key.Right || e.Key == Key.Down)
+                {
+                    StepIndex(1);
                 }
             };
             window.Closed += (_, __) =>

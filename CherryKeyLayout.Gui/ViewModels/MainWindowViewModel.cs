@@ -19,6 +19,8 @@ namespace CherryKeyLayout.Gui.ViewModels
 {
     public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     {
+        private bool _runOnSystemStart;
+        private int _startupDelaySeconds;
         private const double ProfileKeyOpacity = 0.35;
         private const double ProfileUnsetOpacity = 0.06;
         private readonly LightingApplier _applier = new();
@@ -95,6 +97,8 @@ namespace CherryKeyLayout.Gui.ViewModels
         public MainWindowViewModel()
         {
             _preferences = AppPreferences.Load();
+            _runOnSystemStart = _preferences.RunOnSystemStart;
+            _startupDelaySeconds = _preferences.StartupDelaySeconds;
             Profiles = new ObservableCollection<ProfileItemViewModel>();
             KeyButtons = new ObservableCollection<KeyButtonViewModel>();
             ReloadCommand = new DelegateCommand(_ => ReloadProfiles(), _ => CanReload());
@@ -240,6 +244,37 @@ namespace CherryKeyLayout.Gui.ViewModels
         {
             get => _settingsPath;
             set => SetProperty(ref _settingsPath, value);
+        }
+
+        public bool RunOnSystemStart
+        {
+            get => _runOnSystemStart;
+            set
+            {
+                if (SetProperty(ref _runOnSystemStart, value))
+                {
+                    _preferences.RunOnSystemStart = value;
+                    _preferences.Save();
+                    StartupHelper.SetRunOnStartup(value, _startupDelaySeconds);
+                }
+            }
+        }
+
+        public int StartupDelaySeconds
+        {
+            get => _startupDelaySeconds;
+            set
+            {
+                if (SetProperty(ref _startupDelaySeconds, value))
+                {
+                    _preferences.StartupDelaySeconds = value;
+                    _preferences.Save();
+                    if (_runOnSystemStart)
+                    {
+                        StartupHelper.SetRunOnStartup(_runOnSystemStart, value);
+                    }
+                }
+            }
         }
 
         public bool AutoSwitchEnabled
@@ -509,6 +544,76 @@ namespace CherryKeyLayout.Gui.ViewModels
             await ShowMappingIndexAsync(_mappingIndex);
         }
 
+        public Task PreviewHardwareIndexAsync(int index)
+        {
+            return ShowMappingIndexAsync(index);
+        }
+
+        public async Task RestoreHardwarePreviewAsync()
+        {
+            if (SelectedProfile == null || string.IsNullOrWhiteSpace(SettingsPath))
+            {
+                return;
+            }
+
+            try
+            {
+                await ApplySelectedProfileAsync();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        }
+
+        public bool TryRemapKey(KeyButtonViewModel key, int hardwareIndex, out string? message)
+        {
+            message = null;
+
+            if (SelectedDevice == null)
+            {
+                message = "Select a device before remapping keys.";
+                return false;
+            }
+
+            if (hardwareIndex < 0 || hardwareIndex >= CherryConstants.TotalKeys)
+            {
+                message = $"Hardware index must be between 0 and {CherryConstants.TotalKeys - 1}.";
+                return false;
+            }
+
+            var map = SelectedDevice.KeyMap;
+            if (map.TryGetValue(key.Id, out var existingIndex) && existingIndex == hardwareIndex)
+            {
+                message = $"\"{key.Id}\" is already mapped to index {hardwareIndex}.";
+                return true;
+            }
+
+            string? replacedKey = null;
+            foreach (var pair in map)
+            {
+                if (pair.Value == hardwareIndex
+                    && !string.Equals(pair.Key, key.Id, StringComparison.Ordinal))
+                {
+                    replacedKey = pair.Key;
+                    break;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(replacedKey))
+            {
+                map.Remove(replacedKey);
+            }
+
+            map[key.Id] = hardwareIndex;
+            SaveDevicesToPreferences();
+
+            message = string.IsNullOrWhiteSpace(replacedKey)
+                ? $"Remapped \"{key.Id}\" to index {hardwareIndex}."
+                : $"Remapped \"{key.Id}\" to index {hardwareIndex} (replaced \"{replacedKey}\").";
+            return true;
+        }
+
         public string ProfileCountLabel
         {
             get => _profileCountLabel;
@@ -583,7 +688,19 @@ namespace CherryKeyLayout.Gui.ViewModels
                     else if (_selectedTabIndex == 2)
                     {
                         EnsureDeviceLayoutLoaded();
+                        if (SelectedProfile == null && Profiles.Count == 0 && !string.IsNullOrWhiteSpace(SettingsPath))
+                        {
+                            ReloadProfiles();
+                        }
+                        if (SelectedProfile == null && Profiles.Count > 0)
+                        {
+                            SelectedProfile = Profiles.FirstOrDefault();
+                        }
                         ApplyProfileColorsFromSettings();
+                        if (SelectedProfile != null && !string.IsNullOrWhiteSpace(SettingsPath))
+                        {
+                            _ = ApplySelectedProfileAsync();
+                        }
                     }
                     else
                     {
@@ -2346,12 +2463,18 @@ namespace CherryKeyLayout.Gui.ViewModels
             var keyWidth = size.Width / (double)columns;
             var keyHeight = size.Height / (double)rows;
             var keyCount = columns * rows;
-            var keys = Enumerable.Range(0, keyCount)
-                .Select(index =>
+            var keys = new List<KeyDefinition>(keyCount);
+            var index = 0;
+            for (var col = 0; col < columns; col++)
+            {
+                for (var row = 0; row < rows; row++)
                 {
-                    var row = index / columns;
-                    var col = index % columns;
-                    return new KeyDefinition
+                    if (index >= keyCount)
+                    {
+                        break;
+                    }
+
+                    keys.Add(new KeyDefinition
                     {
                         Id = $"Key {index + 1}",
                         Index = index,
@@ -2359,15 +2482,16 @@ namespace CherryKeyLayout.Gui.ViewModels
                         Y = row * keyHeight,
                         Width = keyWidth,
                         Height = keyHeight
-                    };
-                })
-                .ToArray();
+                    });
+                    index++;
+                }
+            }
 
             var layout = new KeyboardLayout
             {
                 Width = size.Width,
                 Height = size.Height,
-                Keys = keys
+                Keys = keys.ToArray()
             };
 
             _keyboardLayout = layout;
@@ -2418,6 +2542,8 @@ namespace CherryKeyLayout.Gui.ViewModels
                 width = size.Width;
                 height = size.Height;
             }
+
+            ReindexKeysColumnMajor(keys);
 
             var layout = new KeyboardLayout
             {
@@ -2470,6 +2596,21 @@ namespace CherryKeyLayout.Gui.ViewModels
                 key.Y = key.Y * scale + offsetY;
                 key.Width *= scale;
                 key.Height *= scale;
+            }
+        }
+
+        private static void ReindexKeysColumnMajor(KeyDefinition[] keys)
+        {
+            var ordered = keys
+                .OrderBy(key => Math.Round(key.X, 3))
+                .ThenBy(key => Math.Round(key.Y, 3))
+                .ThenBy(key => key.Width)
+                .ThenBy(key => key.Height)
+                .ToList();
+
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                ordered[i].Index = i;
             }
         }
 
@@ -2905,10 +3046,7 @@ namespace CherryKeyLayout.Gui.ViewModels
         private void RemoveDevice()
         {
             if (SelectedDevice == null || Devices.Count <= 1)
-            {
                 return;
-            }
-
             var index = Devices.IndexOf(SelectedDevice);
             Devices.Remove(SelectedDevice);
             _preferences.SelectedDeviceId = Devices.First().Id;
@@ -2925,13 +3063,11 @@ namespace CherryKeyLayout.Gui.ViewModels
         private bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
         {
             if (Equals(field, value))
-            {
                 return false;
-            }
-
             field = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
             return true;
         }
+
     }
 }

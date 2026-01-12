@@ -213,6 +213,7 @@
                               <MenuItem Header="Paste" Click="OnKeyPasteClicked" />
                               <MenuItem Header="Set key name" Click="OnKeyRenameClicked" />
                               <MenuItem Header="Set key name (manual)" Click="OnKeyRenameManualClicked" />
+                              <MenuItem Header="Remap key..." Click="OnKeyRemapClicked" />
                               <MenuItem Header="Delete" Click="OnKeyDeleteClicked" />
                             </ContextMenu>
                           </Grid.ContextMenu>
@@ -392,6 +393,16 @@
                 <StackPanel Orientation="Horizontal" Spacing="8">
                   <ToggleSwitch IsChecked="{Binding SyncSelectedProfile}" />
                   <TextBlock Text="Sync selected profile to file" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <ToggleSwitch IsChecked="{Binding RunOnSystemStart}" />
+                  <TextBlock Text="Run on system start" VerticalAlignment="Center" />
+                  <TextBlock Text="Delay (s):" Margin="16,0,0,0" VerticalAlignment="Center" />
+                  <NumericUpDown Minimum="0"
+                                 Maximum="120"
+                                 Width="110"
+                                 MinWidth="90"
+                                 Value="{Binding StartupDelaySeconds, Mode=TwoWay}" />
                 </StackPanel>
               </StackPanel>
             </Border>
