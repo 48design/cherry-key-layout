@@ -13,9 +13,15 @@ I created this software out of curiosity and because I was shocked by how the of
 - Tray app with quick access
 - CLI for scripting and automation
 
-## GUI app
+## Install (Windows)
 
-Run the GUI:
+1. Download the latest Windows release ZIP from GitHub Releases.
+2. Extract the ZIP.
+3. Run `CherryKeyLayout.Gui.exe`.
+
+## Build and run (dev)
+
+For development builds:
 
 ```powershell
 dotnet run --project .\\CherryKeyLayout.Gui
