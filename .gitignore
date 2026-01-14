@@ -416,3 +416,7 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# User settings / local data
+settings.json
+settings_bak.json
