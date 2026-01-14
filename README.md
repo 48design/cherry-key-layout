@@ -69,8 +69,8 @@ MIT - see `LICENSE`.
 
 ---
 
-**Made with ❤️ and 🧠 and 🤖 for the 3D printing community.**
-If this project helps you creating even more awesome 3D prints and if you want to help us improve this and other tools, you can sponsor us a cup of :coffee: - or two! :)
-[donate](https://www.48design.com/donate/)
+**Made with ❤️ and 🧠 and 🤖 for keyboard enthusiasts.**
+If this project helps you fine‑tune your setup and you want to support future features and tools, you can sponsor us a cup of :coffee: (or two). :)
+[donate](https://donate.48design.de/)
 
 ---
