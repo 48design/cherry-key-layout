@@ -1,15 +1,21 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Platform.Storage;
 using Avalonia.Controls.Shapes;
+using SkiaSharp;
+using Svg.Skia;
 using CherryKeyLayout;
 using CherryKeyLayout.Gui.Services;
 using CherryKeyLayout.Gui.ViewModels;
@@ -24,8 +30,6 @@ namespace CherryKeyLayout.Gui
         private bool _isDragging;
         private Viewbox? _keyboardViewbox;
         private Viewbox? _profileViewbox;
-        private ScrollViewer? _deviceEditorScrollViewer;
-        private ScrollViewer? _profileEditorScrollViewer;
         private Border? _deviceMarquee;
         private Border? _profileMarquee;
         private Button? _trashButton;
@@ -77,8 +81,6 @@ namespace CherryKeyLayout.Gui
             
             _keyboardViewbox = this.FindControl<Viewbox>("KeyboardViewbox");
             _profileViewbox = this.FindControl<Viewbox>("ProfileViewbox");
-            _deviceEditorScrollViewer = this.FindControl<ScrollViewer>("DeviceEditorScrollViewer");
-            _profileEditorScrollViewer = this.FindControl<ScrollViewer>("ProfileEditorScrollViewer");
             _deviceMarquee = this.FindControl<Border>("DeviceMarquee");
             _profileMarquee = this.FindControl<Border>("ProfileMarquee");
             _trashButton = this.FindControl<Button>("TrashButton");
@@ -87,7 +89,7 @@ namespace CherryKeyLayout.Gui
             _selectionHandleTopRight = this.FindControl<Rectangle>("SelectionHandleTopRight");
             _selectionHandleBottomLeft = this.FindControl<Rectangle>("SelectionHandleBottomLeft");
             _selectionHandleBottomRight = this.FindControl<Rectangle>("SelectionHandleBottomRight");
-            AddHandler(InputElement.PointerPressedEvent, OnKeyPointerPressed, RoutingStrategies.Tunnel);
+            AddHandler(InputElement.PointerPressedEvent, OnKeyPointerPressed, RoutingStrategies.Tunnel, true);
             AddHandler(InputElement.PointerMovedEvent, OnKeyPointerMoved, RoutingStrategies.Bubble);
             AddHandler(InputElement.PointerReleasedEvent, OnKeyPointerReleased, RoutingStrategies.Bubble);
             AddHandler(InputElement.PointerWheelChangedEvent, OnKeyPointerWheelChanged, RoutingStrategies.Bubble);
@@ -101,6 +103,431 @@ namespace CherryKeyLayout.Gui
                     _viewModel.SetSettingsPath(defaultPath);
                 }
             }
+        }
+
+        private const string AboutWebsiteUrl = "https://48design.com";
+        private const string AboutDonateUrl = "https://donate.48design.de/";
+        private const string AboutRepoUrl = "https://github.com/48design/cherry-key-layout";
+
+        private void OnAboutClicked(object? sender, RoutedEventArgs e)
+        {
+            var dialog = new Window
+            {
+                Title = "About Cherry Key Layout",
+                Width = 760,
+                Height = 520,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false,
+                SystemDecorations = SystemDecorations.None,
+                ExtendClientAreaToDecorationsHint = true,
+                ExtendClientAreaChromeHints = ExtendClientAreaChromeHints.NoChrome
+            };
+
+            dialog.Content = BuildAboutContent(dialog);
+            dialog.ShowDialog(this);
+        }
+
+        private Control BuildAboutContent(Window dialog)
+        {
+            var layout = new Grid
+            {
+                RowDefinitions = new RowDefinitions("Auto,*,Auto"),
+                RowSpacing = 16,
+                Margin = new Thickness(18)
+            };
+
+            var contentGrid = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("*,*"),
+                ColumnSpacing = 16,
+                RowSpacing = 16
+            };
+
+            var leftColumn = new StackPanel { Spacing = 16 };
+            leftColumn.Children.Add(CreateCompanySection());
+            leftColumn.Children.Add(CreateLinksSection());
+
+            var rightColumn = new StackPanel { Spacing = 16 };
+            rightColumn.Children.Add(CreateDependenciesSection());
+
+            Grid.SetColumn(leftColumn, 0);
+            Grid.SetColumn(rightColumn, 1);
+            contentGrid.Children.Add(leftColumn);
+            contentGrid.Children.Add(rightColumn);
+
+            var closeButton = new Button
+            {
+                Content = "Close",
+                MinWidth = 96,
+                HorizontalContentAlignment = HorizontalAlignment.Center
+            };
+            closeButton.Classes.Add("primary");
+            closeButton.Click += (_, __) => dialog.Close();
+
+            var buttonRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Spacing = 10
+            };
+            buttonRow.Children.Add(closeButton);
+
+            var header = CreateAboutHeader();
+            Grid.SetRow(header, 0);
+            Grid.SetRow(contentGrid, 1);
+            Grid.SetRow(buttonRow, 2);
+            layout.Children.Add(header);
+            layout.Children.Add(contentGrid);
+            layout.Children.Add(buttonRow);
+
+            return layout;
+        }
+
+        private Control CreateAboutHeader()
+        {
+            var header = new Border();
+            header.Classes.Add("card");
+            header.Background = new LinearGradientBrush
+            {
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
+                GradientStops = new GradientStops
+                {
+                    new GradientStop(Color.Parse("#2B3038"), 0),
+                    new GradientStop(Color.Parse("#1F242C"), 1)
+                }
+            };
+
+            var grid = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("Auto,*"),
+                ColumnSpacing = 16
+            };
+
+            var logo = CreateAboutLogo();
+            Grid.SetColumn(logo, 0);
+            grid.Children.Add(logo);
+
+            var textStack = new StackPanel
+            {
+                Spacing = 4,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var title = new TextBlock
+            {
+                Text = "Cherry Key Layout"
+            };
+            title.Classes.Add("title");
+
+            var subtitle = new TextBlock
+            {
+                Text = "Keyboard layout editor for Cherry devices.",
+                Foreground = GetBrush("TextMutedBrush"),
+                TextWrapping = TextWrapping.Wrap
+            };
+
+            var version = new TextBlock
+            {
+                Text = $"Version {GetAppVersion()}",
+                Foreground = Brushes.Black,
+                FontSize = 11,
+                FontWeight = FontWeight.SemiBold
+            };
+
+            textStack.Children.Add(title);
+            textStack.Children.Add(subtitle);
+            textStack.Children.Add(new Border
+            {
+                Background = GetBrush("AccentSoftBrush"),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(8, 2),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Child = version
+            });
+
+            Grid.SetColumn(textStack, 1);
+            grid.Children.Add(textStack);
+
+            header.Child = grid;
+            return header;
+        }
+
+        private Control CreateAboutLogo()
+        {
+            var logoBorder = new Border
+            {
+                Width = 72,
+                Height = 72,
+                CornerRadius = new CornerRadius(12),
+                Background = GetBrush("SidebarBrush"),
+                BorderBrush = GetBrush("BorderBrush"),
+                BorderThickness = new Thickness(1)
+            };
+
+            logoBorder.Child = CreateSvgIcon(IconAssets.AppLogo, 48, 48);
+
+            return logoBorder;
+        }
+
+        private Control CreateCompanySection()
+        {
+            var section = new Border();
+            section.Classes.Add("card");
+
+            var grid = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("Auto,*"),
+                ColumnSpacing = 16
+            };
+
+            var signet = new Border
+            {
+                Width = 56,
+                Height = 56,
+                CornerRadius = new CornerRadius(12),
+                Background = GetBrush("SidebarBrush"),
+                BorderBrush = GetBrush("BorderBrush"),
+                BorderThickness = new Thickness(1),
+                Child = CreateSvgIcon(IconAssets.AuthorLogo, 36, 36)
+            };
+
+            var stack = new StackPanel
+            {
+                Spacing = 6
+            };
+
+            var title = new TextBlock
+            {
+                Text = "Author"
+            };
+            title.Classes.Add("section");
+
+            stack.Children.Add(title);
+            stack.Children.Add(new TextBlock { Text = "48DESIGN GmbH", FontWeight = FontWeight.SemiBold });
+            stack.Children.Add(new TextBlock { Text = "Fabian Groß" });
+            stack.Children.Add(new TextBlock { Text = "Gartenstr. 4" });
+            stack.Children.Add(new TextBlock { Text = "75045 Walzbachtal" });
+
+            Grid.SetColumn(signet, 0);
+            Grid.SetColumn(stack, 1);
+            grid.Children.Add(signet);
+            grid.Children.Add(stack);
+
+            section.Child = grid;
+            return section;
+        }
+
+        private Control CreateLinksSection()
+        {
+            var section = new Border();
+            section.Classes.Add("card");
+
+            var stack = new StackPanel
+            {
+                Spacing = 8
+            };
+
+            var title = new TextBlock
+            {
+                Text = "Links"
+            };
+            title.Classes.Add("section");
+
+            stack.Children.Add(title);
+            stack.Children.Add(CreateLinkRow("Website", "48design.com", AboutWebsiteUrl));
+            stack.Children.Add(CreateLinkRow("Donations", "donate.48design.de", AboutDonateUrl));
+            stack.Children.Add(CreateLinkRow("Repository", "github.com/48design/cherry-key-layout", AboutRepoUrl));
+
+            section.Child = stack;
+            return section;
+        }
+
+        private Control CreateDependenciesSection()
+        {
+            var section = new Border();
+            section.Classes.Add("card");
+
+            var stack = new StackPanel
+            {
+                Spacing = 6
+            };
+
+            var title = new TextBlock
+            {
+                Text = "Dependencies"
+            };
+            title.Classes.Add("section");
+
+            stack.Children.Add(title);
+            stack.Children.Add(new TextBlock
+            {
+                Text = "Avalonia, Avalonia.Controls.ColorPicker, Avalonia.Desktop, Avalonia.Themes.Fluent, HidSharp (MIT)",
+                TextWrapping = TextWrapping.Wrap
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = "MIT license texts are available in each dependency repository.",
+                Foreground = GetBrush("TextMutedBrush"),
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            section.Child = stack;
+            return section;
+        }
+
+        private Control CreateLinkRow(string label, string displayText, string url)
+        {
+            var grid = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("Auto,*"),
+                ColumnSpacing = 12,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var labelBlock = new TextBlock
+            {
+                Text = label,
+                Width = 90,
+                Foreground = GetBrush("TextMutedBrush"),
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var linkButton = new Button
+            {
+                Content = displayText,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(12, 4),
+                CornerRadius = new CornerRadius(16)
+            };
+            linkButton.Classes.Add("ghost");
+            linkButton.Click += (_, __) => OpenUrl(url);
+
+            Grid.SetColumn(labelBlock, 0);
+            Grid.SetColumn(linkButton, 1);
+            grid.Children.Add(labelBlock);
+            grid.Children.Add(linkButton);
+
+            return grid;
+        }
+
+        public static Control CreateSvgIcon(string assetUri, double width, double height)
+        {
+            try
+            {
+                using var stream = OpenSvgStream(assetUri);
+                var svg = new SKSvg();
+                var picture = svg.Load(stream);
+                if (picture == null)
+                {
+                    throw new InvalidOperationException("SVG picture not loaded.");
+                }
+
+                var rect = picture.CullRect;
+                if (rect.Width <= 0 || rect.Height <= 0)
+                {
+                    throw new InvalidOperationException("SVG has invalid bounds.");
+                }
+
+                var targetWidth = (int)Math.Ceiling(width);
+                var targetHeight = (int)Math.Ceiling(height);
+                var scale = Math.Min((float)width / rect.Width, (float)height / rect.Height);
+                if (scale <= 0)
+                {
+                    throw new InvalidOperationException("SVG scale invalid.");
+                }
+
+                var info = new SKImageInfo(targetWidth, targetHeight, SKColorType.Bgra8888, SKAlphaType.Premul);
+                using var surface = SKSurface.Create(info);
+                var canvas = surface.Canvas;
+                canvas.Clear(SKColors.Transparent);
+                canvas.Scale(scale);
+
+                var dx = ((float)width / scale - rect.Width) / 2f - rect.Left;
+                var dy = ((float)height / scale - rect.Height) / 2f - rect.Top;
+                canvas.Translate(dx, dy);
+                canvas.DrawPicture(picture);
+                canvas.Flush();
+
+                using var image = surface.Snapshot();
+                using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+                using var bitmapStream = new MemoryStream();
+                data.SaveTo(bitmapStream);
+                bitmapStream.Position = 0;
+
+                var bitmap = new Bitmap(bitmapStream);
+                return new Image
+                {
+                    Source = bitmap,
+                    Width = width,
+                    Height = height,
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+            }
+            catch
+            {
+                return new TextBlock
+                {
+                    Text = "SVG",
+                    FontSize = 10,
+                    Foreground = GetBrush("TextMutedBrush"),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+            }
+        }
+
+        private static Stream OpenSvgStream(string assetUri)
+        {
+            var uri = new Uri(assetUri);
+            if (AssetLoader.Exists(uri))
+            {
+                return AssetLoader.Open(uri);
+            }
+
+            var fileName = System.IO.Path.GetFileName(uri.AbsolutePath);
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                throw new FileNotFoundException("SVG asset not found.", assetUri);
+            }
+
+            var fallbackPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", fileName);
+            if (File.Exists(fallbackPath))
+            {
+                return File.OpenRead(fallbackPath);
+            }
+
+            throw new FileNotFoundException("SVG asset not found.", fallbackPath);
+        }
+
+        private static string GetAppVersion()
+        {
+            var version = Assembly.GetExecutingAssembly().GetName().Version;
+            return version == null ? "unknown" : version.ToString(3);
+        }
+
+        private static void OpenUrl(string url)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = url,
+                    UseShellExecute = true
+                });
+            }
+            catch
+            {
+            }
+        }
+
+        private static IBrush GetBrush(string key)
+        {
+            return (IBrush)Application.Current!.FindResource(key)!;
         }
 
         private async void OnBrowseClicked(object? sender, RoutedEventArgs e)
@@ -334,6 +761,18 @@ namespace CherryKeyLayout.Gui
 
         private void OnKeyPointerMoved(object? sender, PointerEventArgs e)
         {
+            if (_isDragging || _activeResizeHandle != null)
+            {
+                var pointer = e.GetCurrentPoint(this);
+                if (pointer.Properties.IsRightButtonPressed)
+                {
+                    CancelActiveManipulation();
+                    e.Pointer.Capture(null);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             if (_isMarqueeSelecting)
             {
                 if (!TryGetMarqueePosition(e, out var marqueePosition))
@@ -613,10 +1052,6 @@ namespace CherryKeyLayout.Gui
 
             var scale = Math.Min(viewboxBounds.Width / _viewModel.KeyboardCanvasWidth,
                 viewboxBounds.Height / _viewModel.KeyboardCanvasHeight);
-            if (scale > 1)
-            {
-                scale = 1;
-            }
             if (scale <= 0)
             {
                 position = e.GetPosition(viewbox);
@@ -670,24 +1105,7 @@ namespace CherryKeyLayout.Gui
 
         private bool IsPointerWithinSelectionContainer(PointerEventArgs e, MarqueeContext context, Viewbox viewbox)
         {
-            if (IsPointerWithinViewbox(e, viewbox))
-            {
-                return true;
-            }
-
-            var scrollViewer = context == MarqueeContext.DeviceEditor
-                ? _deviceEditorScrollViewer
-                : _profileEditorScrollViewer;
-
-            if (scrollViewer == null)
-            {
-                return false;
-            }
-
-            var pos = e.GetPosition(scrollViewer);
-            return pos.X >= 0 && pos.Y >= 0
-                   && pos.X <= scrollViewer.Bounds.Width
-                   && pos.Y <= scrollViewer.Bounds.Height;
+            return IsPointerWithinViewbox(e, viewbox);
         }
 
         private void BeginMarqueeSelection(MarqueeContext context, Point position, KeyModifiers modifiers)

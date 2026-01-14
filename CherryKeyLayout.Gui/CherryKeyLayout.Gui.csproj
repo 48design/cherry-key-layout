@@ -15,6 +15,7 @@
     <PackageReference Include="Avalonia" Version="11.3.10" />
     <PackageReference Include="Avalonia.Controls.ColorPicker" Version="11.3.10" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.10" />
+    <PackageReference Include="Avalonia.Svg.Skia" Version="11.3.0" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.10" />
   </ItemGroup>
 
@@ -28,6 +29,40 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\\tray-icon.png" />
+    <AvaloniaResource Include="Assets\\cherry-key-layout.svg" />
+    <AvaloniaResource Include="Assets\\logo_signet_white.svg" />
+    <AvaloniaResource Include="Assets\\pick_color.svg" />
+    <AvaloniaResource Include="Assets\\paint_brush.svg" />
+    <AvaloniaResource Include="Assets\\paint_sprayer.svg" />
+    <AvaloniaResource Include="Assets\\select_none.svg" />
+    <AvaloniaResource Include="Assets\\align_top.svg" />
+    <AvaloniaResource Include="Assets\\align_bottom.svg" />
+    <AvaloniaResource Include="Assets\\trash.svg" />
+    <AvaloniaResource Include="Assets\\grid.svg" />
+    <AvaloniaResource Include="Assets\\image.svg" />
+    <AvaloniaResource Include="Assets\\keyboard.svg" />
+    <AvaloniaResource Include="Assets\\save.svg" />
+    <AvaloniaResource Include="Assets\\template.svg" />
+    <AvaloniaResource Include="Assets\\open.svg" />
+    <AvaloniaResource Include="Assets\\add.svg" />
+    <AvaloniaResource Include="Assets\\remove.svg" />
     <None Include="Assets\\tray-icon.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\cherry-key-layout.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\logo_signet_white.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\pick_color.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\paint_brush.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\paint_sprayer.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\select_none.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\align_top.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\align_bottom.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\trash.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\grid.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\image.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\keyboard.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\save.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\template.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\open.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\add.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\remove.svg" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

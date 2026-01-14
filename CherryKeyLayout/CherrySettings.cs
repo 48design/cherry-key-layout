@@ -230,6 +230,81 @@ namespace CherryKeyLayout
             File.WriteAllText(path, root.ToJsonString(options));
         }
 
+        public static int AddProfile(string path, int? sourceProfileIndex = null)
+        {
+            var root = LoadRoot(path);
+            var profilesRoot = FindFirstObjectWithProperty(root, "profilesList");
+            var profilesList = profilesRoot?["profilesList"]?["content"] as JsonArray;
+            if (profilesRoot == null || profilesList == null || profilesList.Count == 0)
+            {
+                throw new InvalidOperationException("No profiles found in settings file.");
+            }
+
+            var selectedIndex = profilesRoot["selectedProfile"]?.GetValue<int>() ?? 0;
+            var sourceIndex = NormalizeProfileIndex(sourceProfileIndex ?? selectedIndex, profilesList.Count);
+            var sourceProfile = profilesList[sourceIndex];
+            var clone = sourceProfile?.DeepClone();
+            if (clone is not JsonObject cloneObject)
+            {
+                throw new InvalidOperationException("Failed to clone profile.");
+            }
+
+            var newIndex = profilesList.Count;
+            var infoNode = cloneObject["content"]?["info"]?["content"] as JsonObject;
+            if (infoNode != null)
+            {
+                var titleNode = infoNode["title"] as JsonObject ?? new JsonObject();
+                titleNode["content"] = $"Profile {newIndex + 1}";
+                if (titleNode["version"] == null)
+                {
+                    titleNode["version"] = 0;
+                }
+                infoNode["title"] = titleNode;
+            }
+
+            profilesList.Add(cloneObject);
+            profilesRoot["selectedProfile"] = newIndex;
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(path, root.ToJsonString(options));
+
+            return newIndex;
+        }
+
+        public static void RemoveProfile(string path, int profileIndex)
+        {
+            var root = LoadRoot(path);
+            var profilesRoot = FindFirstObjectWithProperty(root, "profilesList");
+            var profilesList = profilesRoot?["profilesList"]?["content"] as JsonArray;
+            if (profilesRoot == null || profilesList == null || profilesList.Count == 0)
+            {
+                throw new InvalidOperationException("No profiles found in settings file.");
+            }
+
+            if (profilesList.Count <= 1)
+            {
+                throw new InvalidOperationException("At least one profile must remain.");
+            }
+
+            var index = NormalizeProfileIndex(profileIndex, profilesList.Count);
+            profilesList.RemoveAt(index);
+
+            var selectedIndex = profilesRoot["selectedProfile"]?.GetValue<int>() ?? 0;
+            if (selectedIndex == index)
+            {
+                selectedIndex = Math.Clamp(index - 1, 0, profilesList.Count - 1);
+            }
+            else if (selectedIndex > index)
+            {
+                selectedIndex--;
+            }
+
+            profilesRoot["selectedProfile"] = selectedIndex;
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(path, root.ToJsonString(options));
+        }
+
         private static JsonObject LoadRoot(string path)
         {
             if (!File.Exists(path))

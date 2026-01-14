@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:fluent="clr-namespace:Avalonia.Themes.Fluent;assembly=Avalonia.Themes.Fluent"
              xmlns:cp="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.ColorPicker"
+             xmlns:local="clr-namespace:CherryKeyLayout.Gui.Converters"
              x:Class="CherryKeyLayout.Gui.App"
              RequestedThemeVariant="Dark">
   <Application.Styles>
@@ -31,6 +32,25 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="8" />
       <Setter Property="Padding" Value="10,6" />
+    </Style>
+    <Style Selector="Button.iconButton">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="4" />
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+    </Style>
+    <Style Selector="Button.iconButton Path">
+      <Setter Property="Fill" Value="{DynamicResource TextMutedBrush}" />
+    </Style>
+    <Style Selector="Button.iconButton:pointerover">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="Cursor" Value="Hand" />
     </Style>
     <Style Selector="Button.colorCircle">
       <Setter Property="Background" Value="Transparent" />
@@ -93,6 +113,7 @@
   </Application.Styles>
 
   <Application.Resources>
+    <local:SvgAssetToBitmapConverter x:Key="SvgAssetToBitmap" />
     <Color x:Key="AppBackground">#1D1F24</Color>
     <Color x:Key="SidebarBackground">#15171B</Color>
     <Color x:Key="CardBackground">#262A31</Color>

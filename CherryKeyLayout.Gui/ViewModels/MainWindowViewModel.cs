@@ -9,6 +9,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
@@ -25,6 +26,7 @@ namespace CherryKeyLayout.Gui.ViewModels
         private const double ProfileUnsetOpacity = 0.06;
         private readonly LightingApplier _applier = new();
         private readonly ProfileAutoSwitcher _autoSwitcher;
+        private readonly ScreenSaverWatcher _screenSaverWatcher;
         private readonly AppPreferences _preferences;
         private string _settingsPath = string.Empty;
         private string _statusMessage = string.Empty;
@@ -34,11 +36,25 @@ namespace CherryKeyLayout.Gui.ViewModels
         private string _selectedProfileTitle = "Select a profile";
         private string _selectedProfileAppsLabel = "App links: none";
         private string[] _selectedProfileApps = Array.Empty<string>();
-        private string _profileCountLabel = "0 profiles";
+        private string _profileCountLabel = "Profiles (0)";
+        private string _deviceCountLabel = "Devices (0)";
         private bool _autoSwitchEnabled = true;
+        private bool _screenSaverEnabled;
+        private bool _screenSaverActive;
+        private int _screenSaverRestoreProfileIndex = -1;
+        private LightingMode _screenSaverMode = LightingMode.Wave;
+        private Brightness _screenSaverBrightness = Brightness.Full;
+        private Speed _screenSaverSpeed = Speed.Medium;
+        private bool _screenSaverRainbow;
+        private string _screenSaverColorHex = "#FF0000";
+        private IBrush _screenSaverColorBrush = new SolidColorBrush(Color.Parse("#FF0000"));
+        private Color _screenSaverColor = Color.Parse("#FF0000");
+        private bool _suppressScreenSaverColorUpdate;
+        private bool _screenSaverPreviewActive;
         private bool _syncSelectedProfile = true;
         private CherryProfileInfo[] _profiles = Array.Empty<CherryProfileInfo>();
         private int _defaultProfileIndex;
+        private int _currentProfileIndex = -1;
         private bool _suppressSelectionApply;
         private string _defaultProfileLabel = "Default profile: (none)";
         private LightingMode _selectedLightingMode = LightingMode.Static;
@@ -70,6 +86,8 @@ namespace CherryKeyLayout.Gui.ViewModels
         private AppLinkItemViewModel? _selectedAppLink;
         private string _newAppLink = string.Empty;
         private string _keyPaintMode = "Paint";
+        private bool _isProfilePickMode;
+        private bool _isProfilePaintMode;
         private string? _lastExternalAppPath;
         private bool _isSelfActiveApp;
         private bool _isEditingProfileTitle;
@@ -99,6 +117,18 @@ namespace CherryKeyLayout.Gui.ViewModels
             _preferences = AppPreferences.Load();
             _runOnSystemStart = _preferences.RunOnSystemStart;
             _startupDelaySeconds = _preferences.StartupDelaySeconds;
+            _screenSaverEnabled = _preferences.ScreenSaverEnabled;
+            _screenSaverMode = _preferences.ScreenSaverMode ?? LightingMode.Wave;
+            _screenSaverBrightness = _preferences.ScreenSaverBrightness ?? Brightness.Full;
+            _screenSaverSpeed = _preferences.ScreenSaverSpeed ?? Speed.Medium;
+            _screenSaverRainbow = _preferences.ScreenSaverRainbow;
+            var screenSaverHex = _preferences.ScreenSaverColorHex ?? _screenSaverColorHex;
+            if (TryParseColor(screenSaverHex, out var parsedScreenSaver))
+            {
+                _screenSaverColorHex = $"#{parsedScreenSaver.R:X2}{parsedScreenSaver.G:X2}{parsedScreenSaver.B:X2}";
+                _screenSaverColor = parsedScreenSaver;
+                _screenSaverColorBrush = new SolidColorBrush(parsedScreenSaver);
+            }
             Profiles = new ObservableCollection<ProfileItemViewModel>();
             KeyButtons = new ObservableCollection<KeyButtonViewModel>();
             ReloadCommand = new DelegateCommand(_ => ReloadProfiles(), _ => CanReload());
@@ -127,11 +157,21 @@ namespace CherryKeyLayout.Gui.ViewModels
             ProfileKeyClickedCommand = new DelegateCommand(OnProfileKeyClicked, CanProfileKeyClick);
             ApplyProfileKeyColorCommand = new DelegateCommand(_ => ApplyProfileKeyColor(), _ => CanApplyProfileKeyColor());
             ClearProfileKeySelectionCommand = new DelegateCommand(_ => ClearProfileKeySelection(), _ => CanClearProfileKeySelection());
+            AddProfileCommand = new DelegateCommand(_ => AddProfile(), _ => CanAddProfile());
+            RemoveProfileCommand = new DelegateCommand(_ => RemoveProfile(), _ => CanRemoveProfile());
+            PreviewScreenSaverCommand = new DelegateCommand(async _ => await PreviewScreenSaverAsync(), _ => CanPreviewScreenSaver());
 
             _autoSwitcher = new ProfileAutoSwitcher(
                 ActiveAppTracker.GetActiveProcessPath,
                 ApplyProfileAsyncInternal);
             _autoSwitcher.ActiveProfileChanged += OnActiveProfileChanged;
+
+            _screenSaverWatcher = new ScreenSaverWatcher();
+            _screenSaverWatcher.ScreenSaverStateChanged += OnScreenSaverStateChanged;
+            if (_screenSaverEnabled)
+            {
+                _screenSaverWatcher.Start();
+            }
 
             // TODO: Custom animations would run via Custom mode + per-frame HID updates.
             LightingModes = new[]
@@ -148,6 +188,12 @@ namespace CherryKeyLayout.Gui.ViewModels
                 LightingMode.Ripples,
                 LightingMode.Custom
             };
+            ScreenSaverLightingModes = LightingModes.Where(mode =>
+                mode != LightingMode.Custom
+                && mode != LightingMode.Static
+                && mode != LightingMode.SingleKey
+                && mode != LightingMode.Ripples
+                && mode != LightingMode.Radiation).ToArray();
             BrightnessOptions = Enum.GetValues<Brightness>();
             SpeedOptions = Enum.GetValues<Speed>();
 
@@ -189,8 +235,12 @@ namespace CherryKeyLayout.Gui.ViewModels
         public DelegateCommand ProfileKeyClickedCommand { get; }
         public DelegateCommand ApplyProfileKeyColorCommand { get; }
         public DelegateCommand ClearProfileKeySelectionCommand { get; }
+        public DelegateCommand PreviewScreenSaverCommand { get; }
+        public DelegateCommand AddProfileCommand { get; }
+        public DelegateCommand RemoveProfileCommand { get; }
 
         public LightingMode[] LightingModes { get; }
+        public LightingMode[] ScreenSaverLightingModes { get; }
         public Brightness[] BrightnessOptions { get; }
         public Speed[] SpeedOptions { get; }
         public string[] KeyPaintModes { get; } = new[] { "Paint", "Pick", "Flood", "Move" };
@@ -222,10 +272,17 @@ namespace CherryKeyLayout.Gui.ViewModels
 
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Devices)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowDeviceSelector)));
+                DeviceCountLabel = $"Devices ({_devices?.Count ?? 0})";
             }
         }
 
         public bool ShowDeviceSelector => Devices.Count > 1;
+
+        public string DeviceCountLabel
+        {
+            get => _deviceCountLabel;
+            private set => SetProperty(ref _deviceCountLabel, value);
+        }
 
         public DeviceItemViewModel? SelectedDevice
         {
@@ -284,6 +341,15 @@ namespace CherryKeyLayout.Gui.ViewModels
             {
                 if (SetProperty(ref _autoSwitchEnabled, value))
                 {
+                    if (_screenSaverActive)
+                    {
+                        if (!_autoSwitchEnabled)
+                        {
+                            _autoSwitcher.Stop();
+                        }
+                        return;
+                    }
+
                     if (_autoSwitchEnabled)
                     {
                         _autoSwitcher.Start();
@@ -294,6 +360,133 @@ namespace CherryKeyLayout.Gui.ViewModels
                     }
                 }
             }
+        }
+
+        public bool ScreenSaverEnabled
+        {
+            get => _screenSaverEnabled;
+            set
+            {
+                if (SetProperty(ref _screenSaverEnabled, value))
+                {
+                    _preferences.ScreenSaverEnabled = value;
+                    _preferences.Save();
+                    if (value)
+                    {
+                        _screenSaverWatcher.Start();
+                    }
+                    else
+                    {
+                        _screenSaverWatcher.Stop();
+                        if (_screenSaverActive)
+                        {
+                            EndScreenSaver();
+                        }
+                    }
+
+                    PreviewScreenSaverCommand.RaiseCanExecuteChanged();
+                }
+            }
+        }
+
+        public LightingMode ScreenSaverMode
+        {
+            get => _screenSaverMode;
+            set
+            {
+                if (SetProperty(ref _screenSaverMode, value))
+                {
+                    _preferences.ScreenSaverMode = value;
+                    _preferences.Save();
+                }
+            }
+        }
+
+        public Brightness ScreenSaverBrightness
+        {
+            get => _screenSaverBrightness;
+            set
+            {
+                if (SetProperty(ref _screenSaverBrightness, value))
+                {
+                    _preferences.ScreenSaverBrightness = value;
+                    _preferences.Save();
+                }
+            }
+        }
+
+        public Speed ScreenSaverSpeed
+        {
+            get => _screenSaverSpeed;
+            set
+            {
+                if (SetProperty(ref _screenSaverSpeed, value))
+                {
+                    _preferences.ScreenSaverSpeed = value;
+                    _preferences.Save();
+                }
+            }
+        }
+
+        public bool ScreenSaverRainbow
+        {
+            get => _screenSaverRainbow;
+            set
+            {
+                if (SetProperty(ref _screenSaverRainbow, value))
+                {
+                    _preferences.ScreenSaverRainbow = value;
+                    _preferences.Save();
+                }
+            }
+        }
+
+        public string ScreenSaverColorHex
+        {
+            get => _screenSaverColorHex;
+            set
+            {
+                if (SetProperty(ref _screenSaverColorHex, value))
+                {
+                    _preferences.ScreenSaverColorHex = value;
+                    _preferences.Save();
+                    if (_suppressScreenSaverColorUpdate)
+                    {
+                        return;
+                    }
+
+                    if (TryParseColor(value, out var parsed))
+                    {
+                        _suppressScreenSaverColorUpdate = true;
+                        ScreenSaverColor = parsed;
+                        _suppressScreenSaverColorUpdate = false;
+                    }
+                }
+            }
+        }
+
+        public Color ScreenSaverColor
+        {
+            get => _screenSaverColor;
+            set
+            {
+                if (SetProperty(ref _screenSaverColor, value))
+                {
+                    ScreenSaverColorBrush = new SolidColorBrush(value);
+                    if (!_suppressScreenSaverColorUpdate)
+                    {
+                        _suppressScreenSaverColorUpdate = true;
+                        ScreenSaverColorHex = $"#{value.R:X2}{value.G:X2}{value.B:X2}";
+                        _suppressScreenSaverColorUpdate = false;
+                    }
+                }
+            }
+        }
+
+        public IBrush ScreenSaverColorBrush
+        {
+            get => _screenSaverColorBrush;
+            private set => SetProperty(ref _screenSaverColorBrush, value);
         }
 
         public bool SyncSelectedProfile
@@ -1085,6 +1278,54 @@ namespace CherryKeyLayout.Gui.ViewModels
             set => SetProperty(ref _keyPaintMode, value);
         }
 
+        public bool IsProfilePickMode
+        {
+            get => _isProfilePickMode;
+            set
+            {
+                if (SetProperty(ref _isProfilePickMode, value) && value)
+                {
+                    IsProfilePaintMode = false;
+                    StatusMessage = "Pick a key to sample its color.";
+                }
+
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileKeyCursor)));
+            }
+        }
+
+        public bool IsProfilePaintMode
+        {
+            get => _isProfilePaintMode;
+            set
+            {
+                if (SetProperty(ref _isProfilePaintMode, value) && value)
+                {
+                    IsProfilePickMode = false;
+                    StatusMessage = "Paint mode active: click keys to apply color.";
+                }
+
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileKeyCursor)));
+            }
+        }
+
+        public Cursor ProfileKeyCursor
+        {
+            get
+            {
+                if (IsProfilePickMode)
+                {
+                    return new Cursor(StandardCursorType.Cross);
+                }
+
+                if (IsProfilePaintMode)
+                {
+                    return new Cursor(StandardCursorType.Hand);
+                }
+
+                return new Cursor(StandardCursorType.Arrow);
+            }
+        }
+
         public ObservableCollection<RunningAppItemViewModel> RunningApps
         {
             get => _runningApps;
@@ -1194,6 +1435,7 @@ namespace CherryKeyLayout.Gui.ViewModels
         public void Dispose()
         {
             _autoSwitcher.Dispose();
+            _screenSaverWatcher.Dispose();
         }
 
         private bool CanReload()
@@ -1231,6 +1473,16 @@ namespace CherryKeyLayout.Gui.ViewModels
             return param is AppLinkItemViewModel;
         }
 
+        private bool CanAddProfile()
+        {
+            return Profiles.Count > 0 && File.Exists(SettingsPath);
+        }
+
+        private bool CanRemoveProfile()
+        {
+            return SelectedProfile != null && Profiles.Count > 1 && File.Exists(SettingsPath);
+        }
+
         private bool CanRemoveDevice()
         {
             return Devices.Count > 1 && SelectedDevice != null;
@@ -1249,6 +1501,7 @@ namespace CherryKeyLayout.Gui.ViewModels
         private void OnDevicesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowDeviceSelector)));
+            DeviceCountLabel = $"Devices ({Devices.Count})";
         }
 
 
@@ -1285,7 +1538,7 @@ namespace CherryKeyLayout.Gui.ViewModels
                         profile.Index == _defaultProfileIndex));
                 }
 
-                ProfileCountLabel = $"{Profiles.Count} profile(s)";
+                ProfileCountLabel = $"Profiles ({Profiles.Count})";
                 _suppressSelectionApply = true;
                 SelectedProfile = Profiles.FirstOrDefault(profile => profile.Index == selectedIndex)
                                   ?? Profiles.FirstOrDefault();
@@ -1305,6 +1558,8 @@ namespace CherryKeyLayout.Gui.ViewModels
                 StatusMessage = "Profiles loaded.";
                 ReloadCommand.RaiseCanExecuteChanged();
                 SetDefaultCommand.RaiseCanExecuteChanged();
+                AddProfileCommand.RaiseCanExecuteChanged();
+                RemoveProfileCommand.RaiseCanExecuteChanged();
                 ApplyLightingCommand.RaiseCanExecuteChanged();
                 KeyClickedCommand.RaiseCanExecuteChanged();
                 ClearKeyColorsCommand.RaiseCanExecuteChanged();
@@ -1318,7 +1573,7 @@ namespace CherryKeyLayout.Gui.ViewModels
             {
                 StatusMessage = ex.Message;
                 Profiles.Clear();
-                ProfileCountLabel = "0 profiles";
+                ProfileCountLabel = "Profiles (0)";
                 SelectedProfile = null;
                 ActiveProfileTitle = "No profile loaded";
                 ActiveAppLabel = "Active app: (none)";
@@ -1345,6 +1600,7 @@ namespace CherryKeyLayout.Gui.ViewModels
             {
                 StatusMessage = $"Applying profile {profileIndex}...";
                 await _applier.ApplyProfileAsync(SettingsPath, profileIndex, SyncSelectedProfile);
+                _currentProfileIndex = profileIndex;
                 var title = Profiles.FirstOrDefault(p => p.Index == profileIndex)?.Title;
                 var label = string.IsNullOrWhiteSpace(title) ? $"Profile {profileIndex + 1}" : title;
                 StatusMessage = $"Profile \"{label}\" applied.";
@@ -1353,6 +1609,170 @@ namespace CherryKeyLayout.Gui.ViewModels
             {
                 StatusMessage = ex.Message;
             }
+        }
+
+        private void OnScreenSaverStateChanged(bool isActive)
+        {
+            if (!ScreenSaverEnabled)
+            {
+                return;
+            }
+
+            if (isActive == _screenSaverActive)
+            {
+                return;
+            }
+
+            if (isActive)
+            {
+                BeginScreenSaver();
+            }
+            else
+            {
+                EndScreenSaver();
+            }
+        }
+
+        private void BeginScreenSaver()
+        {
+            _screenSaverActive = true;
+            PreviewScreenSaverCommand.RaiseCanExecuteChanged();
+            _screenSaverRestoreProfileIndex = _currentProfileIndex >= 0
+                ? _currentProfileIndex
+                : _defaultProfileIndex;
+            _autoSwitcher.Stop();
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                ActiveAppLabel = "Active app: (screensaver)";
+                UpdateActiveAppParts(null);
+            });
+
+            if (CanApplyScreenSaver())
+            {
+                _ = ApplyScreenSaverAsync();
+            }
+        }
+
+        private void EndScreenSaver()
+        {
+            _screenSaverActive = false;
+            PreviewScreenSaverCommand.RaiseCanExecuteChanged();
+
+            if (_autoSwitchEnabled)
+            {
+                _autoSwitcher.Start();
+            }
+
+            var restoreIndex = _screenSaverRestoreProfileIndex >= 0
+                ? _screenSaverRestoreProfileIndex
+                : _defaultProfileIndex;
+            _screenSaverRestoreProfileIndex = -1;
+
+            if (CanRestoreProfile())
+            {
+                _ = ApplyProfileAsyncInternal(restoreIndex);
+            }
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                ActiveAppLabel = "Active app: (none)";
+                UpdateActiveAppParts(null);
+            });
+        }
+
+        private async Task ApplyScreenSaverAsync()
+        {
+            try
+            {
+                StatusMessage = "Applying screen saver lighting...";
+                var profileIndex = _defaultProfileIndex >= 0 ? _defaultProfileIndex : 0;
+                await _applier.ApplyLightingAsync(
+                    SettingsPath,
+                    profileIndex,
+                    ScreenSaverMode,
+                    ToRgb(ScreenSaverColor),
+                    ScreenSaverBrightness,
+                    ScreenSaverSpeed,
+                    ScreenSaverRainbow,
+                    syncSelectedProfile: false);
+                StatusMessage = "Screen saver active.";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        }
+
+        private bool CanApplyScreenSaver()
+        {
+            return OperatingSystem.IsWindows();
+        }
+
+        private async Task PreviewScreenSaverAsync()
+        {
+            if (!CanPreviewScreenSaver())
+            {
+                return;
+            }
+
+            _screenSaverPreviewActive = true;
+            PreviewScreenSaverCommand.RaiseCanExecuteChanged();
+
+            var restoreIndex = _currentProfileIndex >= 0
+                ? _currentProfileIndex
+                : _defaultProfileIndex;
+
+            try
+            {
+                StatusMessage = "Previewing screen saver lighting...";
+                await ApplyScreenSaverAsync();
+                await Task.Delay(GetScreenSaverPreviewDuration());
+                if (CanRestoreProfile())
+                {
+                    await ApplyProfileAsyncInternal(restoreIndex);
+                }
+                StatusMessage = "Screen saver preview ended.";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+            finally
+            {
+                _screenSaverPreviewActive = false;
+                PreviewScreenSaverCommand.RaiseCanExecuteChanged();
+            }
+        }
+
+        private bool CanPreviewScreenSaver()
+        {
+            return ScreenSaverEnabled && CanApplyScreenSaver() && !_screenSaverActive && !_screenSaverPreviewActive;
+        }
+
+        private int GetScreenSaverPreviewDuration()
+        {
+            return ScreenSaverSpeed switch
+            {
+                Speed.VeryFast => 1500,
+                Speed.Fast => 2500,
+                Speed.Medium => 3500,
+                Speed.Slow => 5000,
+                Speed.VerySlow => 6500,
+                _ => 3500
+            };
+        }
+
+        private bool CanRestoreProfile()
+        {
+            return _profiles.Length > 0
+                   && !string.IsNullOrWhiteSpace(SettingsPath)
+                   && File.Exists(SettingsPath);
+        }
+
+        private static Rgb ToRgb(Color color)
+        {
+            return new Rgb(color.R, color.G, color.B);
         }
 
         private void UpdateSelectedProfileDetails()
@@ -1489,13 +1909,29 @@ namespace CherryKeyLayout.Gui.ViewModels
                 return;
             }
 
-            key.IsSelected = true;
-            key.Color = ProfileKeyColor;
-            SetProfileKeyBrush(key, ProfileKeyColor);
+            if (IsProfilePickMode)
+            {
+                ProfileKeyColor = key.Color;
+                IsProfilePickMode = false;
+                StatusMessage = $"Picked color from \"{key.Id}\".";
+                return;
+            }
+
+            if (IsProfilePaintMode)
+            {
+                key.Color = ProfileKeyColor;
+                SetProfileKeyBrush(key, ProfileKeyColor);
+                StatusMessage = $"Painted \"{key.Id}\".";
+                _ = ApplyKeyColorsToDeviceAsync();
+                return;
+            }
+
+            key.IsSelected = !key.IsSelected;
             ClearProfileKeySelectionCommand.RaiseCanExecuteChanged();
             ApplyProfileKeyColorCommand.RaiseCanExecuteChanged();
-            StatusMessage = $"Painted \"{key.Id}\".";
-            _ = ApplyKeyColorsToDeviceAsync();
+            StatusMessage = key.IsSelected
+                ? $"Selected \"{key.Id}\"."
+                : $"Deselected \"{key.Id}\".";
         }
 
         private bool CanApplyProfileKeyColor()
@@ -1551,6 +1987,46 @@ namespace CherryKeyLayout.Gui.ViewModels
             NewAppLink = string.Empty;
             SaveProfileEditsCommand.RaiseCanExecuteChanged();
             RemoveAppLinkCommand.RaiseCanExecuteChanged();
+        }
+
+        private void AddProfile()
+        {
+            if (string.IsNullOrWhiteSpace(SettingsPath) || Profiles.Count == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var sourceIndex = SelectedProfile?.Index ?? Profiles.First().Index;
+                var newIndex = CherrySettings.AddProfile(SettingsPath, sourceIndex);
+                ReloadProfiles();
+                SelectedProfile = Profiles.FirstOrDefault(p => p.Index == newIndex) ?? SelectedProfile;
+                StatusMessage = "Profile added.";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        }
+
+        private void RemoveProfile()
+        {
+            if (string.IsNullOrWhiteSpace(SettingsPath) || SelectedProfile == null)
+            {
+                return;
+            }
+
+            try
+            {
+                CherrySettings.RemoveProfile(SettingsPath, SelectedProfile.Index);
+                ReloadProfiles();
+                StatusMessage = "Profile removed.";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
         }
 
         private void AddLastActiveApp(bool exeOnly)

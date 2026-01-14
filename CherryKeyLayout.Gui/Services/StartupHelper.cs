@@ -12,6 +12,11 @@ namespace CherryKeyLayout.Gui.Services
 
         public static void SetRunOnStartup(bool enable, int delaySeconds = 0)
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
             try
             {
                 using var key = Registry.CurrentUser.OpenSubKey(
@@ -37,6 +42,11 @@ namespace CherryKeyLayout.Gui.Services
 
         public static bool IsRunOnStartupEnabled()
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                return false;
+            }
+
             using var key = Registry.CurrentUser.OpenSubKey(
                 "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", false);
             if (key == null) return false;

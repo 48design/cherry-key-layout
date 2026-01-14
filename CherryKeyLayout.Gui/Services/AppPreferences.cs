@@ -14,6 +14,13 @@ namespace CherryKeyLayout.Gui.Services
         public string? SelectedDeviceId { get; set; }
         public bool RunOnSystemStart { get; set; }
         public int StartupDelaySeconds { get; set; }
+        public bool ScreenSaverEnabled { get; set; }
+        public int? ScreenSaverProfileIndex { get; set; }
+        public LightingMode? ScreenSaverMode { get; set; }
+        public Brightness? ScreenSaverBrightness { get; set; }
+        public Speed? ScreenSaverSpeed { get; set; }
+        public string? ScreenSaverColorHex { get; set; }
+        public bool ScreenSaverRainbow { get; set; }
         public DeviceConfig[] Devices { get; set; } = Array.Empty<DeviceConfig>();
 
         public static AppPreferences Load()
