@@ -5,7 +5,29 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Title>Cherry Key Layout</Title>
+    <Company>48DESIGN GmbH</Company>
+    <Authors>Fabian Groß, 48DESIGN</Authors>
+    <Description>Custom C# HID controller for the CHERRY MX Board 3.0S RGB. Reverse-engineered USB protocol inspired by cherryrgb-rs. Provides clean, lightweight RGB control (static color, brightness, effects) without the official CHERRY Utility.</Description>
+    <Copyright>48DESIGN GmbH</Copyright>
+    <PackageProjectUrl>https://github.com/48design/cherry-key-layout</PackageProjectUrl>
+    <PackageIcon>tray-icon.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/48design/cherry-key-layout</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>cherry keyboard, lighting, kayboard layout</PackageTags>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\CherryKeyLayout.Gui\Assets\tray-icon.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <None Include="..\README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="HidSharp" Version="2.6.4" />
