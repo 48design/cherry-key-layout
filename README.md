@@ -1,14 +1,41 @@
 # Cherry Key Layout
-Custom C# HID controller for the CHERRY MX Board 3.0S RGB. Reverse-engineered USB protocol inspired by cherryrgb-rs. Provides clean, lightweight RGB control (static color, brightness, effects) without the official CHERRY Utility.
+A modern GUI editor for CHERRY RGB keyboard profiles with a lightweight C# HID backend. Build and edit layouts, map hardware keys, and manage per‑app profiles without the official CHERRY Utility.
 
-## Quick start
+## WHY?
+
+I created this software out of curiosity and because I was shocked by how the official Cherry keyboard utility/software is implemented. The main problem was that when switching from an app with a profile to any other app the lighting of the keyboard did not switch to a default state/profile of some sort. It got stuck to the last profile used. Totally not understandable!
+
+## Highlights
+
+- Visual profile editor with live key coloring
+- Device layout designer (import image + define keys)
+- Profile auto‑switching by active app
+- Tray app with quick access
+- CLI for scripting and automation
+
+## GUI app
+
+Run the GUI:
+
+```powershell
+dotnet run --project .\\CherryKeyLayout.Gui
+```
+
+### Screenshots
+
+![Device editor](docs/screenshot_devices.jpg)
+![Profile editor](docs/screenshot_profiles.jpg)
+
+## CLI
+
+The CLI is still available for scripting:
 
 ```powershell
 dotnet run --project .\\CherryKeyLayout -- --mode static --color #00FFAA --brightness full
 dotnet run --project .\\CherryKeyLayout -- --mode wave --color #FF00FF --brightness high --speed slow
 ```
 
-## Animation examples
+### Animation examples
 
 ```powershell
 dotnet run --project .\\CherryKeyLayout -- --mode breathing --color #00A0FF --brightness medium --speed medium
@@ -16,46 +43,13 @@ dotnet run --project .\\CherryKeyLayout -- --mode rolling --color #FFAA00 --brig
 dotnet run --project .\\CherryKeyLayout -- --mode spectrum --brightness full --speed fast
 ```
 
-## Batch files
-
-- `test-quickstart.bat` runs the static color example.
-- `test-random-color.bat` picks a random color and applies it.
-
-## Cherry Utility settings
-
-You can load lighting settings from an official `settings.json` and optionally write updated values back:
+## Build
 
 ```powershell
-dotnet run --project .\\CherryKeyLayout -- --load-settings .\\settings.json
-dotnet run --project .\\CherryKeyLayout -- --mode static --color #FF0000 --save-settings .\\settings.json
-```
-
-List profiles stored in a Cherry settings file:
-
-```powershell
-dotnet run --project .\\CherryKeyLayout -- --list-profiles .\\settings.json
-```
-
-Select a profile by index in the settings file, or apply a different profile without changing the file:
-
-```powershell
-dotnet run --project .\\CherryKeyLayout -- --select-profile 1 --load-settings .\\settings.json
-dotnet run --project .\\CherryKeyLayout -- --profile-index 2 --load-settings .\\settings.json
-```
-
-Custom profiles are supported when `mode` is `Custom` and `customColors` are present.
-
-## Avalonia GUI
-
-Run the GUI app (includes tray icon + auto profile switching):
-
-```powershell
-dotnet run --project .\\CherryKeyLayout.Gui
+dotnet build .\\CherryKeyLayout.Gui
 ```
 
 ## Releases (Windows)
-
-Create a Windows release build:
 
 ```powershell
 .\scripts\publish_windows.ps1
