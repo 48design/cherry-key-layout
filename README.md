@@ -1,4 +1,4 @@
-# Cherry Key Layout
+# Cherry Key Layout [![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/donate/?hosted_button_id=VT4P4AT8FTYDL)
 A modern GUI editor for CHERRY RGB keyboard profiles with a lightweight C# HID backend. Build and edit layouts, map hardware keys, and manage per‑app profiles without the official CHERRY Utility.
 
 ## WHY?
@@ -66,3 +66,11 @@ The output zip will be created in `dist\\CherryKeyLayout-win-x64.zip`.
 ## License
 
 MIT - see `LICENSE`.
+
+---
+
+**Made with ❤️ and 🧠 and 🤖 for the 3D printing community.**
+If this project helps you creating even more awesome 3D prints and if you want to help us improve this and other tools, you can sponsor us a cup of :coffee: - or two! :)
+[donate](https://www.48design.com/donate/)
+
+---
