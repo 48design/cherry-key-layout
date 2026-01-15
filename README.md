@@ -3,7 +3,7 @@ A modern GUI editor for CHERRY RGB keyboard profiles with a lightweight C# HID b
 
 ## WHY?
 
-I created this software out of curiosity and because I was shocked by how the official Cherry keyboard utility/software is implemented. The main problem was that when switching from an app with a profile to any other app the lighting of the keyboard did not switch to a default state/profile of some sort. It got stuck to the last profile used. Totally not understandable!
+I created this software out of curiosity and because I was shocked by how the official Cherry keyboard utility/software is implemented. The main problem was that when switching from an app with a profile to any other app the lighting of the keyboard did not switch to a default state/profile of some sort. It got stuck to the last profile used. In addition, if there are multiple app versions installed on a system, the official software wants you to pick all executables that should trigger a profile. And you only have three slots. With Cherry Key Layout you can simply add an executable without the full filepath and profiles are still switched between. A lot more comfortable.
 
 ## Highlights
 
