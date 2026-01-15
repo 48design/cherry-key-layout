@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -20,6 +21,9 @@ namespace CherryKeyLayout.Gui
         private IClassicDesktopStyleApplicationLifetime? _desktopLifetime;
         private IDisposable? _windowStateSubscription;
         private bool _suppressTrayClick;
+        private MainWindow? _mainWindow;
+        private bool _startInTray;
+        private bool _autoRun;
 
         public override void Initialize()
         {
@@ -32,6 +36,8 @@ namespace CherryKeyLayout.Gui
             {
                 _desktopLifetime = desktop;
                 desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                desktop.ShutdownRequested += OnShutdownRequested;
+                (_startInTray, _autoRun) = ParseStartupFlags(desktop.Args ?? Array.Empty<string>());
 
                 AppDomain.CurrentDomain.UnhandledException += (_, args) =>
                     LogUnhandledException(args.ExceptionObject as Exception, "AppDomain.UnhandledException");
@@ -43,12 +49,23 @@ namespace CherryKeyLayout.Gui
                 };
 
                 var mainWindow = new MainWindow();
+                _mainWindow = mainWindow;
                 desktop.MainWindow = mainWindow;
                 mainWindow.Closing += OnMainWindowClosing;
                 _windowStateSubscription = mainWindow.GetObservable(Window.WindowStateProperty)
                     .Subscribe(new WindowStateObserver(state => OnWindowStateChanged(mainWindow, state)));
 
                 CreateTrayIcon(mainWindow, desktop);
+
+                if (_startInTray)
+                {
+                    Dispatcher.UIThread.Post(() => HideToTray(mainWindow));
+                }
+
+                if (_autoRun)
+                {
+                    _ = mainWindow.ApplyAutoRunStartupAsync();
+                }
             }
 
             base.OnFrameworkInitializationCompleted();
@@ -118,6 +135,19 @@ namespace CherryKeyLayout.Gui
                     ShowWindow(window);
                 };
             }
+
+        private async void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
+        {
+            if (_isExiting)
+            {
+                return;
+            }
+
+            _isExiting = true;
+            await ApplyDefaultProfileOnExitAsync();
+            _windowStateSubscription?.Dispose();
+            _trayIcon?.Dispose();
+        }
 
         private static Bitmap LoadTrayIcon()
         {
@@ -229,13 +259,24 @@ namespace CherryKeyLayout.Gui
             window.Hide();
         }
 
-        private void ExitApp(IClassicDesktopStyleApplicationLifetime desktop, Window window)
+        private async void ExitApp(IClassicDesktopStyleApplicationLifetime desktop, Window window)
         {
+            if (_isExiting)
+            {
+                return;
+            }
+
             _isExiting = true;
+            await ApplyDefaultProfileOnExitAsync();
             _windowStateSubscription?.Dispose();
             _trayIcon?.Dispose();
             window.Close();
             desktop.Shutdown();
+        }
+
+        private Task ApplyDefaultProfileOnExitAsync()
+        {
+            return _mainWindow?.ApplyDefaultProfileOnExitAsync() ?? Task.CompletedTask;
         }
 
         private async Task ConfirmExitAsync(Window owner, IClassicDesktopStyleApplicationLifetime desktop)
@@ -282,6 +323,21 @@ namespace CherryKeyLayout.Gui
             {
                 _onNext(value);
             }
+        }
+
+        private static (bool StartInTray, bool AutoRun) ParseStartupFlags(string[] args)
+        {
+            if (args == null || args.Length == 0)
+            {
+                return (false, false);
+            }
+
+            bool HasArg(string value) =>
+                args.Any(arg => string.Equals(arg, value, StringComparison.OrdinalIgnoreCase));
+
+            var autoRun = HasArg("--autostart") || HasArg("--autorun");
+            var startInTray = autoRun || HasArg("--tray") || HasArg("--minimize-to-tray");
+            return (startInTray, autoRun);
         }
     }
 }

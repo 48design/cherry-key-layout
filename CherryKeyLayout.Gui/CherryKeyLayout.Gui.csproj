@@ -5,11 +5,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnableDefaultAvaloniaXamlItems>false</EnableDefaultAvaloniaXamlItems>
+    <UseSystemDrawing>true</UseSystemDrawing>
     <Title>Cherry Key Layout</Title>
     <Description>Custom C# HID controller for the CHERRY MX Board 3.0S RGB. Reverse-engineered USB protocol inspired by cherryrgb-rs. Provides clean, lightweight RGB control (static color, brightness, effects) without the official CHERRY Utility.</Description>
     <Copyright>48DESIGN GmbH</Copyright>
     <PackageProjectUrl>https://github.com/48design/cherry-key-layout</PackageProjectUrl>
     <PackageIcon>tray-icon.png</PackageIcon>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/48design/cherry-key-layout</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -28,6 +30,7 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.3.10" />
     <PackageReference Include="Avalonia.Svg.Skia" Version="11.3.0" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.10" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -40,8 +43,14 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\\tray-icon.png" />
+    <AvaloniaResource Include="Assets\\app.ico" />
     <AvaloniaResource Include="Assets\\cherry-key-layout.svg" />
     <AvaloniaResource Include="Assets\\logo_signet_white.svg" />
+    <AvaloniaResource Include="Assets\\settings.svg" />
+    <AvaloniaResource Include="Assets\\info.svg" />
+    <AvaloniaResource Include="Assets\\tasks.svg" />
+    <AvaloniaResource Include="Assets\\erase.svg" />
+    <AvaloniaResource Include="Assets\\none.svg" />
     <AvaloniaResource Include="Assets\\pick_color.svg" />
     <AvaloniaResource Include="Assets\\paint_brush.svg" />
     <AvaloniaResource Include="Assets\\paint_sprayer.svg" />
@@ -67,6 +76,11 @@
     </None>
     <None Include="Assets\\cherry-key-layout.svg" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Assets\\logo_signet_white.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\settings.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\info.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\tasks.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\erase.svg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\\none.svg" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Assets\\pick_color.svg" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Assets\\paint_brush.svg" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Assets\\paint_sprayer.svg" CopyToOutputDirectory="PreserveNewest" />

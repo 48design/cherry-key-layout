@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -75,6 +76,8 @@ namespace CherryKeyLayout.Gui
         {
             InitializeComponent();
 
+            TrySetWindowIcon();
+
             _viewModel = new MainWindowViewModel();
             DataContext = _viewModel;
             Closed += (_, __) => _viewModel.Dispose();
@@ -103,6 +106,34 @@ namespace CherryKeyLayout.Gui
                     _viewModel.SetSettingsPath(defaultPath);
                 }
             }
+        }
+
+        private void TrySetWindowIcon()
+        {
+            try
+            {
+                var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "tray-icon.png");
+                if (!System.IO.File.Exists(iconPath))
+                {
+                    return;
+                }
+
+                using var bitmap = new Bitmap(iconPath);
+                Icon = new WindowIcon(bitmap);
+            }
+            catch
+            {
+            }
+        }
+
+        public Task ApplyAutoRunStartupAsync()
+        {
+            return _viewModel.ApplyAutoRunStartupAsync();
+        }
+
+        public Task ApplyDefaultProfileOnExitAsync()
+        {
+            return _viewModel.ApplyDefaultProfileOnExitAsync();
         }
 
         private const string AboutWebsiteUrl = "https://48design.com";
@@ -528,6 +559,37 @@ namespace CherryKeyLayout.Gui
         private static IBrush GetBrush(string key)
         {
             return (IBrush)Application.Current!.FindResource(key)!;
+        }
+
+        private void OnProfileIconPickerClicked(object? sender, RoutedEventArgs e)
+        {
+            if (sender is not Control control)
+            {
+                return;
+            }
+
+            FlyoutBase.ShowAttachedFlyout(control);
+        }
+
+        private void OnProfileIconPicked(object? sender, RoutedEventArgs e)
+        {
+            if (sender is ToggleButton toggle
+                && toggle.DataContext is ViewModels.ProfileIconOptionViewModel option
+                && DataContext is ViewModels.MainWindowViewModel viewModel)
+            {
+                if (viewModel.SelectProfileIconCommand.CanExecute(option))
+                {
+                    viewModel.SelectProfileIconCommand.Execute(option);
+                }
+                e.Handled = true;
+            }
+
+            var pickerButton = this.FindControl<Button>("ProfileIconPickerButton");
+            if (pickerButton != null)
+            {
+                var attached = FlyoutBase.GetAttachedFlyout(pickerButton);
+                attached?.Hide();
+            }
         }
 
         private async void OnBrowseClicked(object? sender, RoutedEventArgs e)

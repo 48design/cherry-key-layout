@@ -14,6 +14,11 @@ namespace CherryKeyLayout.Gui
         public const string Grid = "avares://CherryKeyLayout.Gui/Assets/grid.svg";
         public const string Image = "avares://CherryKeyLayout.Gui/Assets/image.svg";
         public const string Keyboard = "avares://CherryKeyLayout.Gui/Assets/keyboard.svg";
+        public const string Settings = "avares://CherryKeyLayout.Gui/Assets/settings.svg";
+        public const string Info = "avares://CherryKeyLayout.Gui/Assets/info.svg";
+        public const string Tasks = "avares://CherryKeyLayout.Gui/Assets/tasks.svg";
+        public const string Erase = "avares://CherryKeyLayout.Gui/Assets/erase.svg";
+        public const string None = "avares://CherryKeyLayout.Gui/Assets/none.svg";
         public const string Save = "avares://CherryKeyLayout.Gui/Assets/save.svg";
         public const string Template = "avares://CherryKeyLayout.Gui/Assets/template.svg";
         public const string Open = "avares://CherryKeyLayout.Gui/Assets/open.svg";

@@ -83,6 +83,7 @@ namespace CherryKeyLayout.Gui.ViewModels
         private string _profileTitleEdit = string.Empty;
         private string _profileTitleDraft = string.Empty;
         private ObservableCollection<AppLinkItemViewModel> _profileAppsEdit = new();
+        private ObservableCollection<ProfileIconOptionViewModel> _profileIconOptions = new();
         private AppLinkItemViewModel? _selectedAppLink;
         private string _newAppLink = string.Empty;
         private string _keyPaintMode = "Paint";
@@ -142,6 +143,7 @@ namespace CherryKeyLayout.Gui.ViewModels
             AddAppLinkCommand = new DelegateCommand(_ => AddAppLink(), _ => CanAddAppLink());
             RemoveAppLinkCommand = new DelegateCommand(RemoveAppLink, CanRemoveAppLink);
             StripAppLinkCommand = new DelegateCommand(StripAppLink, CanStripAppLink);
+            SelectProfileIconCommand = new DelegateCommand(SelectProfileIcon, CanSelectProfileIcon);
             RefreshRunningAppsCommand = new DelegateCommand(_ => RefreshRunningApps());
             SelectRunningAppCommand = new DelegateCommand(SelectRunningApp, CanSelectRunningApp);
             ApplyKeyColorsCommand = new DelegateCommand(async _ => await ApplyKeyColorsToDeviceAsync(), _ => CanApplyKeyColor());
@@ -160,6 +162,8 @@ namespace CherryKeyLayout.Gui.ViewModels
             AddProfileCommand = new DelegateCommand(_ => AddProfile(), _ => CanAddProfile());
             RemoveProfileCommand = new DelegateCommand(_ => RemoveProfile(), _ => CanRemoveProfile());
             PreviewScreenSaverCommand = new DelegateCommand(async _ => await PreviewScreenSaverAsync(), _ => CanPreviewScreenSaver());
+
+            AttachProfileAppsHandlers(_profileAppsEdit);
 
             _autoSwitcher = new ProfileAutoSwitcher(
                 ActiveAppTracker.GetActiveProcessPath,
@@ -220,6 +224,7 @@ namespace CherryKeyLayout.Gui.ViewModels
         public DelegateCommand AddAppLinkCommand { get; }
         public DelegateCommand RemoveAppLinkCommand { get; }
         public DelegateCommand StripAppLinkCommand { get; }
+        public DelegateCommand SelectProfileIconCommand { get; }
         public DelegateCommand RefreshRunningAppsCommand { get; }
         public DelegateCommand SelectRunningAppCommand { get; }
         public DelegateCommand ApplyKeyColorsCommand { get; }
@@ -1245,8 +1250,27 @@ namespace CherryKeyLayout.Gui.ViewModels
         public ObservableCollection<AppLinkItemViewModel> ProfileAppsEdit
         {
             get => _profileAppsEdit;
-            private set => SetProperty(ref _profileAppsEdit, value);
+            private set
+            {
+                if (ReferenceEquals(_profileAppsEdit, value))
+                {
+                    return;
+                }
+
+                DetachProfileAppsHandlers(_profileAppsEdit);
+                _profileAppsEdit = value;
+                AttachProfileAppsHandlers(_profileAppsEdit);
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileAppsEdit)));
+            }
         }
+
+        public ObservableCollection<ProfileIconOptionViewModel> ProfileIconOptions
+        {
+            get => _profileIconOptions;
+            private set => SetProperty(ref _profileIconOptions, value);
+        }
+
+        public bool HasProfileIconOptions => ProfileIconOptions.Count > 0;
 
         public AppLinkItemViewModel? SelectedAppLink
         {
@@ -1338,6 +1362,48 @@ namespace CherryKeyLayout.Gui.ViewModels
             _preferences.SettingsPath = path;
             _preferences.Save();
             ReloadProfiles();
+        }
+
+        public async Task ApplyAutoRunStartupAsync()
+        {
+            if (!TryGetDefaultProfileIndex(out var defaultIndex))
+            {
+                return;
+            }
+
+            try
+            {
+                await _applier.ApplyProfileAsync(SettingsPath, defaultIndex, syncSelectedProfile: false);
+                _currentProfileIndex = defaultIndex;
+                ActiveProfileTitle = Profiles.FirstOrDefault(p => p.Index == defaultIndex)?.Title
+                    ?? $"Profile {defaultIndex + 1}";
+                ActiveAppLabel = "Active app: (startup)";
+            }
+            catch
+            {
+                return;
+            }
+
+            if (AutoSwitchEnabled)
+            {
+                await _autoSwitcher.EvaluateOnceAsync();
+            }
+        }
+
+        public async Task ApplyDefaultProfileOnExitAsync()
+        {
+            if (!TryGetDefaultProfileIndex(out var defaultIndex))
+            {
+                return;
+            }
+
+            try
+            {
+                await _applier.ApplyProfileAsync(SettingsPath, defaultIndex, syncSelectedProfile: false);
+            }
+            catch
+            {
+            }
         }
 
         public void SetKeyboardImage(string path)
@@ -1535,7 +1601,9 @@ namespace CherryKeyLayout.Gui.ViewModels
                         profile.Title,
                         profile.AppEnabled,
                         profile.AppPaths,
-                        profile.Index == _defaultProfileIndex));
+                        profile.Index == _defaultProfileIndex,
+                        profile.PictureDataUri,
+                        profile.PictureSource));
                 }
 
                 ProfileCountLabel = $"Profiles ({Profiles.Count})";
@@ -1785,6 +1853,8 @@ namespace CherryKeyLayout.Gui.ViewModels
                 AppLinksTitle = "App Links";
                 ProfileTitleDraft = string.Empty;
                 IsEditingProfileTitle = false;
+                ProfileIconOptions.Clear();
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasProfileIconOptions)));
                 return;
             }
 
@@ -1801,10 +1871,150 @@ namespace CherryKeyLayout.Gui.ViewModels
             ProfileTitleDraft = ProfileTitleEdit;
             IsEditingProfileTitle = false;
             ProfileAppsEdit = new ObservableCollection<AppLinkItemViewModel>(
-                SelectedProfile.AppPaths.Select(value => new AppLinkItemViewModel(value)));
+                LoadProfileAppLinks(SelectedProfile));
             SaveProfileEditsCommand.RaiseCanExecuteChanged();
             RemoveAppLinkCommand.RaiseCanExecuteChanged();
             ApplyProfileColorsFromSettings();
+            RefreshProfileIconOptions();
+        }
+
+        private IEnumerable<AppLinkItemViewModel> LoadProfileAppLinks(ProfileItemViewModel profile)
+        {
+            if (string.IsNullOrWhiteSpace(SettingsPath))
+            {
+                return profile.AppPaths.Select(value => new AppLinkItemViewModel(value));
+            }
+
+            try
+            {
+                var links = CherrySettings.LoadProfileAppLinks(SettingsPath, profile.Index);
+                return links.Select(link => new AppLinkItemViewModel(link.Path, link.IconDataUri));
+            }
+            catch
+            {
+                return profile.AppPaths.Select(value => new AppLinkItemViewModel(value));
+            }
+        }
+
+        private void RefreshProfileIconOptions()
+        {
+            ProfileIconOptions.Clear();
+            if (SelectedProfile == null)
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasProfileIconOptions)));
+                return;
+            }
+
+            if (!OperatingSystem.IsWindowsVersionAtLeast(6, 1))
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasProfileIconOptions)));
+                return;
+            }
+
+            var selectedSource = SelectedProfile.PictureSource;
+            var selectedData = SelectedProfile.PictureDataUri;
+            var selected = false;
+
+            var noneOption = new ProfileIconOptionViewModel(
+                icon: null,
+                dataUri: null,
+                sourceName: null,
+                toolTip: "None",
+                isNone: true);
+            if (string.IsNullOrWhiteSpace(selectedData) && string.IsNullOrWhiteSpace(selectedSource))
+            {
+                noneOption.IsSelected = true;
+                selected = true;
+            }
+            ProfileIconOptions.Add(noneOption);
+
+            foreach (var app in ProfileAppsEdit)
+            {
+                var sourceName = AppIconLoader.GetExecutableName(app.Value);
+                var bitmap = app.Icon;
+                var dataUri = app.IconDataUri;
+                if (bitmap == null)
+                {
+                    var iconData = AppIconLoader.TryLoadIconData(app.Value);
+                    if (iconData != null)
+                    {
+                        bitmap = iconData.Bitmap;
+                        dataUri = iconData.DataUri;
+                    }
+                }
+
+                if (bitmap == null)
+                {
+                    continue;
+                }
+
+                var option = new ProfileIconOptionViewModel(
+                    bitmap,
+                    dataUri,
+                    string.IsNullOrWhiteSpace(sourceName) ? null : sourceName,
+                    app.Value);
+
+                if (!string.IsNullOrWhiteSpace(selectedSource)
+                    && !string.IsNullOrWhiteSpace(option.SourceName)
+                    && string.Equals(selectedSource, option.SourceName, StringComparison.OrdinalIgnoreCase))
+                {
+                    option.IsSelected = true;
+                    selected = true;
+                }
+
+                ProfileIconOptions.Add(option);
+            }
+
+            if (!string.IsNullOrWhiteSpace(selectedData) && !selected)
+            {
+                var bitmap = ProfileImageHelper.TryDecodeDataUri(selectedData);
+                if (bitmap != null)
+                {
+                    var option = new ProfileIconOptionViewModel(
+                        bitmap,
+                        selectedData,
+                        string.IsNullOrWhiteSpace(selectedSource) ? null : selectedSource,
+                        "Stored profile image");
+                    option.IsSelected = true;
+                    ProfileIconOptions.Insert(1, option);
+                }
+            }
+
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasProfileIconOptions)));
+        }
+
+        private bool CanSelectProfileIcon(object? param)
+        {
+            return SelectedProfile != null && param is ProfileIconOptionViewModel;
+        }
+
+        private void SelectProfileIcon(object? param)
+        {
+            if (SelectedProfile == null || param is not ProfileIconOptionViewModel option)
+            {
+                return;
+            }
+
+            foreach (var item in ProfileIconOptions)
+            {
+                item.IsSelected = ReferenceEquals(item, option);
+            }
+
+            if (string.IsNullOrWhiteSpace(SettingsPath))
+            {
+                return;
+            }
+
+            if (option.IsNone)
+            {
+                CherrySettings.SetProfilePicture(SettingsPath, SelectedProfile.Index, null, null);
+                SelectedProfile.UpdatePicture(null, null);
+            }
+            else
+            {
+                CherrySettings.SetProfilePicture(SettingsPath, SelectedProfile.Index, option.DataUri, option.SourceName);
+                SelectedProfile.UpdatePicture(option.DataUri, option.SourceName);
+            }
         }
 
         private void SetDefaultProfile()
@@ -1837,10 +2047,15 @@ namespace CherryKeyLayout.Gui.ViewModels
             try
             {
                 CherrySettings.SetProfileTitle(SettingsPath, SelectedProfile.Index, ProfileTitleEdit);
-                CherrySettings.SetProfileApps(
-                    SettingsPath,
-                    SelectedProfile.Index,
-                    ProfileAppsEdit.Select(item => item.Value).ToArray());
+                var appLinks = ProfileAppsEdit
+                    .Select(item => new CherryAppLinkInfo
+                    {
+                        Path = item.Value,
+                        IconDataUri = item.IconDataUri
+                    })
+                    .ToArray();
+                CherrySettings.SetProfileAppsWithIcons(SettingsPath, SelectedProfile.Index, appLinks);
+                ClearProfilePictureIfSourceMissing(SelectedProfile, appLinks);
                 SaveProfileColorsToSettings();
 
                 SelectedProfile = null;
@@ -1850,6 +2065,38 @@ namespace CherryKeyLayout.Gui.ViewModels
             catch (Exception ex)
             {
                 StatusMessage = ex.Message;
+            }
+        }
+
+        private void ClearProfilePictureIfSourceMissing(ProfileItemViewModel profile, CherryAppLinkInfo[] appLinks)
+        {
+            if (string.IsNullOrWhiteSpace(SettingsPath))
+            {
+                return;
+            }
+
+            var source = profile.PictureSource;
+            if (string.IsNullOrWhiteSpace(source))
+            {
+                return;
+            }
+
+            var sourceName = AppIconLoader.GetExecutableName(source);
+            if (string.IsNullOrWhiteSpace(sourceName))
+            {
+                return;
+            }
+
+            var remaining = appLinks
+                .Select(link => AppIconLoader.GetExecutableName(link.Path))
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            if (!remaining.Contains(sourceName, StringComparer.OrdinalIgnoreCase))
+            {
+                CherrySettings.SetProfilePicture(SettingsPath, profile.Index, null, null);
+                profile.UpdatePicture(null, null);
             }
         }
 
@@ -2080,9 +2327,48 @@ namespace CherryKeyLayout.Gui.ViewModels
                 return;
             }
 
+            if (SelectedProfile != null && !string.IsNullOrWhiteSpace(SettingsPath))
+            {
+                PersistProfileIconBeforeStrip(SelectedProfile, trimmed);
+            }
+
             item.Value = Path.GetFileName(trimmed);
             SaveProfileEditsCommand.RaiseCanExecuteChanged();
             RemoveAppLinkCommand.RaiseCanExecuteChanged();
+        }
+
+        private void PersistProfileIconBeforeStrip(ProfileItemViewModel profile, string rawValue)
+        {
+            if (!OperatingSystem.IsWindowsVersionAtLeast(6, 1))
+            {
+                return;
+            }
+
+            var sourceName = AppIconLoader.GetExecutableName(rawValue);
+            if (string.IsNullOrWhiteSpace(sourceName))
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(profile.PictureSource)
+                && !string.Equals(profile.PictureSource, sourceName, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(profile.PictureDataUri))
+            {
+                return;
+            }
+
+            var iconData = AppIconLoader.TryLoadIconData(rawValue);
+            if (iconData == null)
+            {
+                return;
+            }
+
+            CherrySettings.SetProfilePicture(SettingsPath, profile.Index, iconData.DataUri, sourceName);
+            profile.UpdatePicture(iconData.DataUri, sourceName);
         }
 
         private void UpdateDefaultProfileLabel()
@@ -2091,6 +2377,63 @@ namespace CherryKeyLayout.Gui.ViewModels
             DefaultProfileLabel = profile == null
                 ? "Default profile: (none)"
                 : $"Default profile: {profile.Title}";
+        }
+
+        private void AttachProfileAppsHandlers(ObservableCollection<AppLinkItemViewModel>? collection)
+        {
+            if (collection == null)
+            {
+                return;
+            }
+
+            collection.CollectionChanged += OnProfileAppsCollectionChanged;
+            foreach (var item in collection)
+            {
+                item.PropertyChanged += OnProfileAppLinkChanged;
+            }
+        }
+
+        private void DetachProfileAppsHandlers(ObservableCollection<AppLinkItemViewModel>? collection)
+        {
+            if (collection == null)
+            {
+                return;
+            }
+
+            collection.CollectionChanged -= OnProfileAppsCollectionChanged;
+            foreach (var item in collection)
+            {
+                item.PropertyChanged -= OnProfileAppLinkChanged;
+            }
+        }
+
+        private void OnProfileAppsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (e.OldItems != null)
+            {
+                foreach (var item in e.OldItems.OfType<AppLinkItemViewModel>())
+                {
+                    item.PropertyChanged -= OnProfileAppLinkChanged;
+                }
+            }
+
+            if (e.NewItems != null)
+            {
+                foreach (var item in e.NewItems.OfType<AppLinkItemViewModel>())
+                {
+                    item.PropertyChanged += OnProfileAppLinkChanged;
+                }
+            }
+
+            RefreshProfileIconOptions();
+        }
+
+        private void OnProfileAppLinkChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(AppLinkItemViewModel.Value))
+            {
+                RefreshProfileIconOptions();
+            }
         }
 
         public void RefreshRunningApps()
@@ -3473,6 +3816,27 @@ namespace CherryKeyLayout.Gui.ViewModels
             var selected = Devices.FirstOrDefault(d => d.Id == _preferences.SelectedDeviceId)
                            ?? Devices.FirstOrDefault();
             SelectedDevice = selected;
+        }
+
+        private bool TryGetDefaultProfileIndex(out int defaultIndex)
+        {
+            defaultIndex = _defaultProfileIndex;
+            if (string.IsNullOrWhiteSpace(SettingsPath) || !File.Exists(SettingsPath))
+            {
+                return false;
+            }
+
+            if (_profiles.Length == 0)
+            {
+                return false;
+            }
+
+            if (defaultIndex < 0 || defaultIndex >= _profiles.Length)
+            {
+                return false;
+            }
+
+            return true;
         }
 
         private void ApplySelectedDevice()

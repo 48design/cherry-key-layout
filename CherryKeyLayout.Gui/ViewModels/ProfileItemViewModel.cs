@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Linq;
 using System.Runtime.CompilerServices;
+using AvaloniaBitmap = Avalonia.Media.Imaging.Bitmap;
+using CherryKeyLayout.Gui.Services;
 
 namespace CherryKeyLayout.Gui.ViewModels
 {
@@ -10,8 +11,18 @@ namespace CherryKeyLayout.Gui.ViewModels
     {
         private bool _isDefault;
         private string _title;
+        private AvaloniaBitmap? _profileImage;
+        private string? _pictureDataUri;
+        private string? _pictureSource;
 
-        public ProfileItemViewModel(int index, string? title, bool appEnabled, IReadOnlyList<string> appPaths, bool isDefault)
+        public ProfileItemViewModel(
+            int index,
+            string? title,
+            bool appEnabled,
+            IReadOnlyList<string> appPaths,
+            bool isDefault,
+            string? pictureDataUri,
+            string? pictureSource)
         {
             Index = index;
             _title = string.IsNullOrWhiteSpace(title) ? $"Profile {index + 1}" : title!;
@@ -19,6 +30,9 @@ namespace CherryKeyLayout.Gui.ViewModels
             AppPaths = appPaths?.ToArray() ?? Array.Empty<string>();
             _isDefault = isDefault;
             AppSummary = appEnabled ? $"{AppPaths.Length} linked app(s)" : string.Empty;
+            _pictureDataUri = pictureDataUri;
+            _pictureSource = pictureSource;
+            _profileImage = ProfileImageHelper.TryDecodeDataUri(pictureDataUri);
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -32,6 +46,16 @@ namespace CherryKeyLayout.Gui.ViewModels
         public bool AppEnabled { get; }
         public string[] AppPaths { get; }
         public string AppSummary { get; }
+        public AvaloniaBitmap? ProfileImage
+        {
+            get => _profileImage;
+            private set => SetProperty(ref _profileImage, value, nameof(ProfileImage));
+        }
+
+        public bool HasProfileImage => ProfileImage != null;
+
+        public string? PictureDataUri => _pictureDataUri;
+        public string? PictureSource => _pictureSource;
 
         public bool IsDefault
         {
@@ -40,6 +64,14 @@ namespace CherryKeyLayout.Gui.ViewModels
         }
 
         public string DefaultLabel => IsDefault ? "Default" : string.Empty;
+
+        public void UpdatePicture(string? dataUri, string? source)
+        {
+            _pictureDataUri = dataUri;
+            _pictureSource = source;
+            ProfileImage = ProfileImageHelper.TryDecodeDataUri(dataUri);
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasProfileImage)));
+        }
 
         private void SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
         {
@@ -54,6 +86,11 @@ namespace CherryKeyLayout.Gui.ViewModels
             {
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DefaultLabel)));
             }
+            else if (propertyName == nameof(ProfileImage))
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasProfileImage)));
+            }
         }
+
     }
 }

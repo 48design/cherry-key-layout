@@ -8,6 +8,7 @@ namespace CherryKeyLayout.Gui.Services
     public static class StartupHelper
     {
         private const string AppName = "CherryKeyLayoutGui";
+        private const string AutoRunArgs = "--autostart --tray";
         private static string ExePath => Process.GetCurrentProcess().MainModule?.FileName ?? string.Empty;
 
         public static void SetRunOnStartup(bool enable, int delaySeconds = 0)
@@ -25,7 +26,7 @@ namespace CherryKeyLayout.Gui.Services
 
                 if (enable)
                 {
-                    var value = $"\"{ExePath}\"";
+                    var value = $"\"{ExePath}\" {AutoRunArgs}";
                     if (delaySeconds > 0)
                     {
                         value = $"cmd /c timeout /t {delaySeconds} && {value}";

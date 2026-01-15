@@ -56,6 +56,11 @@ namespace CherryKeyLayout.Gui.Services
             _gate.Dispose();
         }
 
+        public Task EvaluateOnceAsync()
+        {
+            return TickAsync();
+        }
+
         private async Task TickAsync()
         {
             if (!await _gate.WaitAsync(0))

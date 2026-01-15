@@ -24,6 +24,14 @@ namespace CherryKeyLayout
         public string? Title { get; init; }
         public bool AppEnabled { get; init; }
         public string[] AppPaths { get; init; } = Array.Empty<string>();
+        public string? PictureDataUri { get; init; }
+        public string? PictureSource { get; init; }
+    }
+
+    public sealed class CherryAppLinkInfo
+    {
+        public string Path { get; init; } = string.Empty;
+        public string? IconDataUri { get; init; }
     }
 
     public static class CherrySettings
@@ -72,13 +80,17 @@ namespace CherryKeyLayout
                             .Select(pathValue => NormalizeAppPath(pathValue!))
                             .Where(pathValue => !string.IsNullOrWhiteSpace(pathValue))
                             .ToArray();
+                    var picture = info?["picture"]?["content"]?.GetValue<string>();
+                    var pictureSource = info?["pictureSource"]?["content"]?.GetValue<string>();
 
                     return new CherryProfileInfo
                     {
                         Index = index,
                         Title = title,
                         AppEnabled = appEnabled,
-                        AppPaths = appPaths
+                        AppPaths = appPaths,
+                        PictureDataUri = string.IsNullOrWhiteSpace(picture) ? null : picture,
+                        PictureSource = string.IsNullOrWhiteSpace(pictureSource) ? null : pictureSource
                     };
                 })
                 .ToArray();
@@ -225,6 +237,124 @@ namespace CherryKeyLayout
 
             profileInfo["appList"] = appListNode;
             profileInfo["appEnabled"] = appList.Count > 0;
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(path, root.ToJsonString(options));
+        }
+
+        public static CherryAppLinkInfo[] LoadProfileAppLinks(string path, int profileIndex)
+        {
+            var root = LoadRoot(path);
+            var profileInfo = GetProfileInfoNode(root, profileIndex);
+            var appList = profileInfo?["appList"]?["content"] as JsonArray;
+            if (appList == null)
+            {
+                return Array.Empty<CherryAppLinkInfo>();
+            }
+
+            return appList
+                .Select(app =>
+                {
+                    var pathValue = app?["content"]?.GetValue<string>() ?? string.Empty;
+                    var iconData = app?["icon"]?["content"]?.GetValue<string>();
+                    var normalized = string.IsNullOrWhiteSpace(pathValue)
+                        ? string.Empty
+                        : NormalizeAppPath(pathValue);
+                    if (string.IsNullOrWhiteSpace(normalized))
+                    {
+                        return null;
+                    }
+
+                    return new CherryAppLinkInfo
+                    {
+                        Path = normalized,
+                        IconDataUri = string.IsNullOrWhiteSpace(iconData) ? null : iconData
+                    };
+                })
+                .Where(item => item != null)
+                .ToArray()!;
+        }
+
+        public static void SetProfileAppsWithIcons(string path, int profileIndex, IEnumerable<CherryAppLinkInfo> apps)
+        {
+            var root = LoadRoot(path);
+            var profileInfo = GetProfileInfoNode(root, profileIndex);
+            var appList = new JsonArray();
+            foreach (var app in apps ?? Array.Empty<CherryAppLinkInfo>())
+            {
+                if (app == null)
+                {
+                    continue;
+                }
+
+                var trimmed = app.Path?.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed))
+                {
+                    continue;
+                }
+
+                var entry = new JsonObject
+                {
+                    ["content"] = NormalizeAppPath(trimmed),
+                    ["version"] = 0
+                };
+
+                if (!string.IsNullOrWhiteSpace(app.IconDataUri))
+                {
+                    entry["icon"] = new JsonObject
+                    {
+                        ["content"] = app.IconDataUri,
+                        ["version"] = 0
+                    };
+                }
+
+                appList.Add(entry);
+            }
+
+            var appListNode = profileInfo["appList"] as JsonObject ?? new JsonObject();
+            appListNode["content"] = appList;
+            if (appListNode["version"] == null)
+            {
+                appListNode["version"] = 0;
+            }
+
+            profileInfo["appList"] = appListNode;
+            profileInfo["appEnabled"] = appList.Count > 0;
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(path, root.ToJsonString(options));
+        }
+
+        public static void SetProfilePicture(string path, int profileIndex, string? dataUri, string? source)
+        {
+            var root = LoadRoot(path);
+            var profileInfo = GetProfileInfoNode(root, profileIndex);
+
+            if (string.IsNullOrWhiteSpace(dataUri))
+            {
+                profileInfo.Remove("picture");
+            }
+            else
+            {
+                profileInfo["picture"] = new JsonObject
+                {
+                    ["content"] = dataUri,
+                    ["version"] = 0
+                };
+            }
+
+            if (string.IsNullOrWhiteSpace(source))
+            {
+                profileInfo.Remove("pictureSource");
+            }
+            else
+            {
+                profileInfo["pictureSource"] = new JsonObject
+                {
+                    ["content"] = source,
+                    ["version"] = 0
+                };
+            }
 
             var options = new JsonSerializerOptions { WriteIndented = true };
             File.WriteAllText(path, root.ToJsonString(options));
